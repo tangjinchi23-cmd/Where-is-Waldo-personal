@@ -1,0 +1,8 @@
+langgraph>=0.2.0
+langchain-core>=0.2.0
+anthropic>=0.30.0
+pillow>=10.0.0
+
+# 可选：其他 VLM provider
+# openai>=1.30.0
+# google-generativeai>=0.7.0

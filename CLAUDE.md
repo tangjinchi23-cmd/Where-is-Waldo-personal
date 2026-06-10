@@ -233,7 +233,7 @@ WhereisWaldoAgent/
 
 > 详见 `docs/run_issues_2026-06-09.md`
 
-- [ ] **analyze 解析失败（仍存在）**：`ANALYZE_MAX_TOKENS` 已提到 128，但 2026-06-10 实测仍收到**空字符串** `''`，降级到 fallback 6×10。token 上限非根因。下一步：打印完整原始响应 + HTTP 状态定位（疑为限流/model id 问题），加重试逻辑
+- [x] **analyze 解析失败（已修复）**：根因 = `gpt-5.5` 是**推理模型**，`max_completion_tokens` 先被 reasoning token 消耗。128 预算被推理 100% 吃光（`finish_reason='length'`, content=`''`），降级到 fallback。实测 reasoning 达 ~232 token。修复：`ANALYZE_MAX_TOKENS` 提至 1024（对齐 detect/verify 默认值）。集成测试 `test_analyze_vlm_response_is_not_empty` 已转绿
 - [x] **main.py grid_size 参数过时**：`run_agent` 调用已改为 `grid_size=1`，`initial_state` 默认值同步改为 1
 - [x] **detect 截断导致系统性漏检**：`MAX_PATCHES_PER_ITER` 提升至 80，截断改为随机采样，避免系统性漏检右下角
 

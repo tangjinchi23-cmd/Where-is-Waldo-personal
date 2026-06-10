@@ -40,15 +40,18 @@ _TEST_IMAGE = os.path.join(_PROJECT_ROOT, "original-images", "1.jpg")
 
 class TestConfig:
     def test_analyze_max_tokens_is_sufficient(self):
-        """ANALYZE_MAX_TOKENS must be >= 128 to avoid truncated JSON responses from GPT-4o.
+        """ANALYZE_MAX_TOKENS must cover reasoning tokens + output for the gpt-5.5 reasoning model.
 
-        Bug 1: current value is 64, which can truncate the {"rows":N,"cols":M} response
-        and force a fallback to the heuristic grid — silently degrading search quality.
+        Bug 1 root cause (confirmed 2026-06-10): gpt-5.5 spends max_completion_tokens on
+        internal reasoning BEFORE emitting visible output. Measured reasoning usage reached
+        ~232 tokens while the JSON output is only ~20. A budget of 128 was fully consumed by
+        reasoning (finish_reason='length', content=''), forcing a heuristic fallback.
+        512 is the practical floor; we use 1024 for headroom.
         """
-        assert ANALYZE_MAX_TOKENS >= 128, (
-            f"ANALYZE_MAX_TOKENS={ANALYZE_MAX_TOKENS} is too low. "
-            "GPT-4o needs at least 128 tokens to reliably return the grid JSON. "
-            "Raise to 128 in agent/nodes/analyze.py."
+        assert ANALYZE_MAX_TOKENS >= 512, (
+            f"ANALYZE_MAX_TOKENS={ANALYZE_MAX_TOKENS} is too low for a reasoning model. "
+            "gpt-5.5 burns ~230 reasoning tokens before output; a low cap yields empty content. "
+            "Raise to >= 512 (1024 recommended) in agent/nodes/analyze.py."
         )
 
 
@@ -262,7 +265,8 @@ class TestAnalyzeNodeIntegration:
         captured = capsys.readouterr()
         assert "Failed to parse grid dims" not in captured.out, (
             "analyze_node fell back to heuristic — VLM returned empty/unparseable response.\n"
-            "Likely cause: ANALYZE_MAX_TOKENS is too low. Raise to >= 128.\n"
+            "Likely cause: ANALYZE_MAX_TOKENS too low for gpt-5.5 reasoning tokens "
+            "(reasoning eats the budget before output). Raise to >= 512.\n"
             f"Full stdout:\n{captured.out}"
         )
 

@@ -15,7 +15,10 @@ from prompts import build_analyze_prompt
 
 VLM_PROVIDER = "gpt4o"
 THUMBNAIL_MAX = 900
-ANALYZE_MAX_TOKENS = 128
+# gpt-5.5 是推理模型：max_completion_tokens 会先被 reasoning token 消耗，再产出可见输出。
+# 实测 reasoning 可达 ~230 token，而输出 JSON 仅 ~20 token。预算过低（如 128）会被推理
+# 全部吃光，content 返回空字符串触发 fallback。1024 对齐 detect/verify 默认值，留足余量。
+ANALYZE_MAX_TOKENS = 1024
 THUMB_DIR = "outputs/thumbs"
 
 

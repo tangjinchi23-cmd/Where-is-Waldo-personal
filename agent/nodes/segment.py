@@ -1,8 +1,7 @@
 """segment 节点：将 focus_regions 切分为 patch 列表。
 
 设计原则：
-- analyze 后：focus_regions 已是 N×M 个合理大小的格子，每格直接作为一个 patch（grid_size=1）
-- calibrate 后：focus_regions 是 ~400px 的扩展区域，用 grid_size=2 切成 4 个 ~200px patch
+- focus_regions 已是 analyze 切出的 N×M 个合理大小格子，grid_size=1 时每格直接作为一个 patch
 - 始终跳过宽或高 < MIN_PATCH_PX 的区域，防止过小 patch 传入 VLM
 """
 

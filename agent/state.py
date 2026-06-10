@@ -6,7 +6,7 @@ class WaldoState(TypedDict):
     original_image_path: str        # 原图路径
 
     # ── 搜索参数 ──────────────────────────────────────
-    grid_size: int                  # 初始=1（格子即 patch），calibrate 后固定=2
+    grid_size: int                  # 切分粒度（线性流水线下恒为 1）
     focus_regions: list             # [[x, y, w, h], ...]，当前重点搜索区域（原图坐标）
 
     # ── analyze 输出 ──────────────────────────────────
@@ -19,12 +19,11 @@ class WaldoState(TypedDict):
     # ── 最终结果 ──────────────────────────────────────
     verified_result: list | None    # [x, y, w, h]（原图坐标），未找到则 None
 
-    # ── 迭代控制 ──────────────────────────────────────
-    iteration: int
-    max_iterations: int
+    # ── 运行标识 ──────────────────────────────────────
+    iteration: int                  # 线性流水线下恒为 0；detect/verify 用于命名输出文件
 
 
-def initial_state(image_path: str, max_iterations: int = 5, grid_size: int = 1) -> WaldoState:
+def initial_state(image_path: str, grid_size: int = 1) -> WaldoState:
     """构造初始 State，全图作为唯一 focus_region。analyze 节点会替换 focus_regions。"""
     from PIL import Image
     img = Image.open(image_path)
@@ -38,5 +37,4 @@ def initial_state(image_path: str, max_iterations: int = 5, grid_size: int = 1) 
         candidates=[],
         verified_result=None,
         iteration=0,
-        max_iterations=max_iterations,
     )

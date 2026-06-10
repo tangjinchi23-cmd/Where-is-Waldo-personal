@@ -2,6 +2,8 @@
 
 ## 1. 整体流程
 
+当前为**线性流水线**，无迭代回路（evaluate / calibrate 已移除）：
+
 ```
 START
   │
@@ -11,8 +13,7 @@ START
   │  输出：N×M 个 focus_regions（覆盖全图）+ grid_rows + grid_cols
   ▼
 [segment]  ──────────────────────────────────────────────────────────────
-  │  将 focus_regions 切分为 patch（第1轮 grid_size=1 直接用格子；
-  │  calibrate 后 grid_size=2 将 ~400px 区域切成 4 个 ~200px patch）
+  │  将 focus_regions 按 grid_size=1 切分为 patch（格子即 patch）
   │  跳过宽或高 < 150px 的区域
   │  输出：candidates（仅含 patch_bbox）
   ▼
@@ -25,21 +26,13 @@ START
   │  取 top-3 候选，从原图裁出（+30% padding），VLM(GPT-4o) 二次确认
   │  输出：candidates（含 verified / verify_confidence）+ verified_result
   ▼
-[evaluate] ──────────────────────────────────────────────────────────────
-  │  iteration + 1，无其他逻辑
-  │  由 route_after_evaluate 决定下一跳
-  │
-  ├─── verified_result 非空            ──→ [visualize] → END
-  ├─── iteration ≥ max_iterations      ──→ [visualize] → END
-  ├─── 最佳候选 verify_confidence≥0.85 ──→ [visualize] → END
-  │
-  └─── 否则                            ──→ [calibrate]
-                                              │
-                                              │  以命中 patch 中心扩展 400px 区域
-                                              │  作为新 focus_regions，grid_size=2
-                                              │
-                                              └─────────────→ [segment]（回路）
+[visualize]────────────────────────────────────────────────────────────────
+  │  优先用 verified_result；为空则取最佳候选 bbox，在原图画红框
+  ▼
+ END
 ```
+
+> **设计沿革**：原 `evaluate → calibrate → segment` 迭代回路已于 2026-06-10 移除。原因：(1) calibrate 重搜的是已失败的同尺寸（~200px）热区，边际收益低；(2) evaluate 仅做 `iteration+1`，是冗余节点；(3) 旧路由存在缺陷——verify 对"非 Waldo"判断的高 confidence（如 0.96）会误触 `verify_confidence≥0.85` 的提前退出。如后续遇复杂案例需二次细化，再按需接入新节点。
 
 ---
 
@@ -60,12 +53,12 @@ START
 
 ### segment
 - **无 VLM 调用**，纯图像切分
-- **输入**：`focus_regions`，`grid_size`（analyze 后为 1，calibrate 后为 2）
+- **输入**：`focus_regions`，`grid_size`（线性流水线下恒为 1）
 - **过程**：
   - 对每个 focus_region 按 `grid_size×grid_size` 切分，12% overlap
   - 跳过宽或高 < `MIN_PATCH_PX=150` 的区域（含告警日志）
 - **输出写入 State**：
-  - `candidates`：每轮**重置**，初始化为 `[{patch_bbox, region_idx, row, col, ...}]`
+  - `candidates`：**重置**，初始化为 `[{patch_bbox, region_idx, row, col, ...}]`
 
 ### detect
 - **Provider**：GPT-4o（`detect.py:VLM_PROVIDER = "gpt4o"`）
@@ -75,7 +68,7 @@ START
   2. 将 patch 从原图裁剪并保存到 `outputs/patches/`
   3. 串行调用 VLM（`MAX_CONCURRENT=1`），发送 `DETECT_PROMPT`
   4. VLM 返回 `{"present": true/false, "confidence": 0.0-1.0}`
-  5. 过滤 `confidence < 0.15`，按置信度降序排列；截断至 `MAX_PATCHES_PER_ITER=40`
+  5. 过滤 `confidence < 0.15`，按置信度降序排列；超过 `MAX_PATCHES_PER_ITER=80` 则随机采样
 - **限流重试**：遇到 429 指数退避（15s → 30s → 60s → 120s，最多 4 次）
 
 ### verify
@@ -89,26 +82,8 @@ START
   - `candidates`：更新 `verified` / `verify_confidence` / `orig_bbox` / `verify_crop_path`
   - `verified_result`：`is_waldo=True` 中 `verify_confidence` 最高的 `orig_bbox`；无则 `None`
 
-### evaluate + 路由
-- `evaluate_node` 仅做 `iteration + 1`
-- `route_after_evaluate` 决定路由（按优先级）：
-  1. `verified_result is not None` → **visualize**
-  2. `iteration >= max_iterations` → **visualize**（兜底退出）
-  3. 最佳候选的 `verify_confidence >= 0.85` → **visualize**
-  4. 否则 → **calibrate**
-
-### calibrate
-- **无 VLM 调用**
-- **输入**：`candidates`，`original_image_path`
-- **过程**：
-  1. 从 `has_waldo=True` 的候选中按 confidence 降序取 top-3（若全为 False 则从全部候选取）
-  2. 以每个 patch 的**中心**为圆心，向外扩展到 `EXPAND_TO=400px` 的正方形区域（clamp 至图像边界）
-  3. 输出扩展后的区域作为新 `focus_regions`，`grid_size` 固定为 `CALIBRATE_GRID_SIZE=2`
-- **输出写入 State**：`focus_regions` / `grid_size=2` / `region_grid_sizes={}`
-- 完成后回到 **segment**（不再经过 analyze）
-
 ### visualize
-- **无 VLM 调用**
+- **无 VLM 调用**，流水线终点（verify 直接接 visualize）
 - **输入**：`verified_result`（优先），或 candidates 中置信度最高候选的 bbox（兜底）
 - **过程**：调用 `tools/visualize.py` 的 `@tool` 在原图上画红框，保存到 `outputs/{basename}_result.jpg`
 
@@ -120,17 +95,15 @@ START
 字段                   由谁写入              被谁读取
 ──────────────────────────────────────────────────────────
 original_image_path    initial_state         全部节点
-focus_regions          analyze / calibrate   segment
+focus_regions          analyze               segment
 grid_rows              analyze               （记录用）
 grid_cols              analyze               （记录用）
 grid_size              initial_state(1)      segment
-                       calibrate(固定=2)
-candidates             segment(重置)         detect / verify / calibrate / visualize
+candidates             segment(重置)         detect / verify / visualize
                        detect(更新)
                        verify(更新)
-verified_result        verify                evaluate(路由) / visualize
-iteration              initial_state(0)      evaluate(路由)
-                       evaluate(+1)
+verified_result        verify                visualize
+iteration              initial_state(0)      detect / verify（命名输出文件，恒为 0）
 ```
 
 ---
@@ -148,13 +121,13 @@ iteration              initial_state(0)      evaluate(路由)
 ## 5. 关键设计决策
 
 **200×200px 作为设计锚点**
-实验证明 VLM 在 200×200px 的裁图内可以可靠判断 Waldo 是否存在。analyze 推荐行列数的依据是 `dim / 200`，calibrate 扩展 400px 后以 grid_size=2 切分，均保证每个 patch ≈ 200×200px。150px 是两处硬性下限（`MIN_PATCH_PX` / `MIN_DETECT_PATCH_PX`）。
+实验证明 VLM 在 200×200px 的裁图内可以可靠判断 Waldo 是否存在。analyze 推荐行列数的依据是 `dim / 200`，第 1 轮以 grid_size=1 直接用格子，保证每个 patch ≈ 200×200px。150px 是两处硬性下限（`MIN_PATCH_PX` / `MIN_DETECT_PATCH_PX`）。
 
 **两阶段检测（detect → verify）**
 detect 追求高召回（`DETECT_PROMPT` 明确要求"宁可标 true"，实验验证 GPT-4o 表现更好），verify 追求高精度（`VERIFY_PROMPT` 要求清晰看到红白条纹才确认）。
 
-**calibrate 扩展而非收缩**
-旧版 calibrate 直接用 `patch_bbox` 作为下一轮 `focus_region`，叠加 grid_size 递增，导致 patch 指数级缩小。新版以 patch 中心扩展 400px 正方形，保证后续 patch 始终在可识别尺寸。
+**线性流水线（无迭代回路）**
+原 evaluate / calibrate 回路已移除：calibrate 重搜的是已失败的同尺寸热区、边际收益低，evaluate 仅做计数属冗余，且旧路由对"非 Waldo"高 confidence 会误触提前退出。当前为单趟 analyze→segment→detect→verify→visualize。
 
 **bbox 来源的退化链**
 detect 不一定返回精确 bbox → verify 退化为整个 patch 坐标 → verify 用加了 padding 的区域发给 VLM → visualize 取 `orig_bbox`（精确）或 `patch_bbox`（兜底）。
@@ -165,14 +138,11 @@ detect 不一定返回精确 bbox → verify 退化为整个 patch 坐标 → ve
 
 | 参数 | 位置 | 默认值 | 说明 |
 |------|------|--------|------|
-| `max_iterations` | `main.py` | 5 | 最大迭代次数 |
 | `ANALYZE_MAX_TOKENS` | `nodes/analyze.py` | 128 | VLM 响应的 token 上限（过低会截断 JSON，触发 fallback） |
 | `THUMBNAIL_MAX` | `nodes/analyze.py` | 900 | 发给 VLM 的缩略图最大边长 |
 | `MIN_PATCH_PX` | `nodes/segment.py` | 150 | 跳过过小 patch 的下限 |
 | `DETECT_CONFIDENCE_THRESHOLD` | `nodes/detect.py` | 0.15 | detect 过滤阈值 |
 | `MIN_DETECT_PATCH_PX` | `nodes/detect.py` | 150 | detect 跳过过小 patch 的下限 |
-| `MAX_PATCHES_PER_ITER` | `nodes/detect.py` | 40 | 每轮 patch 硬性上限 |
+| `MAX_PATCHES_PER_ITER` | `nodes/detect.py` | 80 | patch 硬性上限，超出随机采样 |
+| `MAX_CONCURRENT` | `nodes/detect.py` | 1 | detect 并发数 |
 | `TOP_K` | `nodes/verify.py` | 3 | 送 verify 的候选数 |
-| `VERIFY_CONFIDENCE_THRESHOLD` | `nodes/evaluate.py` | 0.85 | 提前退出阈值 |
-| `EXPAND_TO` | `nodes/calibrate.py` | 400 | calibrate 扩展区域尺寸（px）|
-| `CALIBRATE_GRID_SIZE` | `nodes/calibrate.py` | 2 | calibrate 后 segment 的固定 grid_size |

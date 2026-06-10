@@ -74,7 +74,7 @@ def segment_all_regions(
 
     Args:
         focus_regions: 区域列表，每项 [x, y, w, h]。
-        default_grid_size: 切分粒度（analyze 后为 1，calibrate 后为 2）。
+        default_grid_size: 切分粒度（当前线性流水线恒为 1）。
         image_size: (img_width, img_height)。
         min_patch_size: 最小 patch 像素尺寸。
         overlap: 相邻 patch 重叠比例。

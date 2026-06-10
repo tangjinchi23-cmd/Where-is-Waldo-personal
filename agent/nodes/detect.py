@@ -15,6 +15,10 @@ MAX_CONCURRENT = 1                   # 串行调用：50 req/min 限制下最安
 MAX_PATCHES_PER_ITER = 80            # 每轮 patch 硬性上限，超出则随机截断
 MIN_DETECT_PATCH_PX = 150            # 低于此尺寸的 patch 跳过（VLM 无法可靠识别）
 VLM_PROVIDER = "gpt4o"
+# detect 用非推理模型：实验（tests/check_gpt4o.py）证明 gpt-5.4-mini 在 detect 任务上
+# 召回 100%（优于 gpt-5.5 的 80%）、速度快 ~17x（1s vs 17s/张）。detect 只需高召回，
+# 唯一代价（误报）由 verify 阶段兜底，故非推理模型更契合本节点定位。
+VLM_MODEL = "gpt-5.4-mini"
 PATCH_DIR = "outputs/patches"
 
 # 限流重试
@@ -32,7 +36,7 @@ def detect_node(state: WaldoState) -> dict:
     2. 并发调用 VLM（ThreadPoolExecutor）
     3. 合并结果，过滤低置信度，按置信度降序排列
     """
-    vlm = get_vlm_client(VLM_PROVIDER)
+    vlm = get_vlm_client(VLM_PROVIDER, model=VLM_MODEL)
     image_path = state["original_image_path"]
     iteration = state["iteration"]
     os.makedirs(PATCH_DIR, exist_ok=True)

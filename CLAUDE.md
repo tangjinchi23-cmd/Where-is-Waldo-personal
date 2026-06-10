@@ -10,7 +10,7 @@
 
 在复杂的 Where's Waldo 图片中，通过 AI Agent 自动定位 Waldo 并返回原图坐标的 bbox。
 
-> **当前状态**：已完成大规模重构。**全部节点（analyze / detect / verify）统一使用 GPT-4o**。核心设计锚点：**200×200px 是 VLM 可靠识别 Waldo 的最小 patch 尺寸**。
+> **当前状态**：已完成大规模重构。全部节点走 OpenAI 视觉模型：**analyze / verify 用 `gpt-5.5`（推理），detect 用 `gpt-5.4-mini`（非推理，召回 100% 且快 ~17x）**。核心设计锚点：**200×200px 是 VLM 可靠识别 Waldo 的最小 patch 尺寸**。
 
 ---
 
@@ -135,7 +135,7 @@ get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
 | Provider | 类 | 默认 model | 备注 |
 |----------|----|-----------|------|
 | claude | `ClaudeVLMClient` | `claude-sonnet-4-6` | 可切换备用 |
-| gpt4o | `GPT4oVLMClient` | `gpt-5.5` | **全部节点默认**；实验验证召回率更高 |
+| gpt4o | `GPT4oVLMClient` | `gpt-5.5` | analyze / verify 默认；detect 改用 `gpt-5.4-mini`（非推理，召回 100% 且快 ~17x） |
 | gemini | `GeminiVLMClient` | `gemini-1.5-flash` | 可选 |
 | qwen | `QwenVLMClient` | `qwen-vl-max` | 走 DashScope OpenAI 兼容接口；需 `DASHSCOPE_API_KEY` |
 

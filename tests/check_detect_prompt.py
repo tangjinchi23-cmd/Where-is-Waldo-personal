@@ -1,6 +1,6 @@
 """测试新版 DETECT_PROMPT 在已知含 Waldo 图片上的召回率。
 
-images_withWaldo/ 目录下的图片均含 Waldo（ground truth = present），
+images_quicktests/ 目录下的图片均含 Waldo（ground truth = present），
 因此该测试直接衡量 false negative 率：
   召回率 = detected / total
 
@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
-IMAGE_DIR = os.path.join(ROOT, "images_withWaldo")
+IMAGE_DIR = os.path.join(ROOT, "images_quicktests")
 VLM_PROVIDER = "claude"   # 换成 "gpt4o" 可对比
 
 

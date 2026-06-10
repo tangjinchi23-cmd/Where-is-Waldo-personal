@@ -17,7 +17,7 @@ def main():
     image_path = sys.argv[1] if len(sys.argv) > 1 else "original-images/1.jpg"
     print(f"[main] Running WaldoAgent on: {image_path}")
 
-    final_state = run_agent(image_path, max_iterations=5, grid_size=3)
+    final_state = run_agent(image_path, max_iterations=5, grid_size=1)
 
     result = final_state.get("verified_result")
     if result:

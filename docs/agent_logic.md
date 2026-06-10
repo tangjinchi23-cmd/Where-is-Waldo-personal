@@ -7,7 +7,7 @@ START
   │
   ▼
 [analyze]  ──────────────────────────────────────────────────────────────
-  │  VLM(Claude) 看缩略图，根据复杂度推荐切割行列数（目标每格约 200×200px）
+  │  VLM(GPT-4o) 看缩略图，根据复杂度推荐切割行列数（目标每格约 200×200px）
   │  输出：N×M 个 focus_regions（覆盖全图）+ grid_rows + grid_cols
   ▼
 [segment]  ──────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ START
   │  输出：candidates（含 has_waldo / confidence）
   ▼
 [verify]   ──────────────────────────────────────────────────────────────
-  │  取 top-3 候选，从原图裁出（+30% padding），VLM(Claude) 二次确认
+  │  取 top-3 候选，从原图裁出（+30% padding），VLM(GPT-4o) 二次确认
   │  输出：candidates（含 verified / verify_confidence）+ verified_result
   ▼
 [evaluate] ──────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ START
 ## 2. 节点详解
 
 ### analyze
-- **Provider**：Claude（`analyze.py:VLM_PROVIDER = "claude"`）
+- **Provider**：GPT-4o（`analyze.py:VLM_PROVIDER = "gpt4o"`）
 - **输入**：原图路径
 - **过程**：
   1. 根据图片尺寸计算建议行列数（`suggest = max(2, round(dim / 200))`）
@@ -57,8 +57,6 @@ START
 - **输出写入 State**：
   - `focus_regions`：N×M 个格子的 `[x, y, w, h]`（原图坐标，每格约 200×200px）
   - `grid_rows` / `grid_cols`：VLM 推荐的行列数
-  - `region_complexity`：填充 0.5（保留兼容，不再使用）
-  - `region_grid_sizes`：`{}`（已废弃）
 
 ### segment
 - **无 VLM 调用**，纯图像切分
@@ -81,7 +79,7 @@ START
 - **限流重试**：遇到 429 指数退避（15s → 30s → 60s → 120s，最多 4 次）
 
 ### verify
-- **Provider**：Claude（`verify.py:VLM_PROVIDER = "claude"`）
+- **Provider**：GPT-4o（`verify.py:VLM_PROVIDER = "gpt4o"`）
 - **输入**：`candidates`（已按置信度降序），`original_image_path`
 - **过程**：取前 3 个候选（`TOP_K=3`），每个：
   1. patch 内 bbox → 原图坐标（无精确 bbox 时退化为整个 patch）
@@ -125,10 +123,8 @@ original_image_path    initial_state         全部节点
 focus_regions          analyze / calibrate   segment
 grid_rows              analyze               （记录用）
 grid_cols              analyze               （记录用）
-grid_size              initial_state(2)      segment
+grid_size              initial_state(1)      segment
                        calibrate(固定=2)
-region_grid_sizes      已废弃，始终为 {}     segment（忽略）
-region_complexity      analyze(填0.5)        （不再使用）
 candidates             segment(重置)         detect / verify / calibrate / visualize
                        detect(更新)
                        verify(更新)
@@ -143,9 +139,9 @@ iteration              initial_state(0)      evaluate(路由)
 
 | 节点 | Provider | Prompt | 目标 | 策略 |
 |------|----------|--------|------|------|
-| analyze | Claude | `build_analyze_prompt` | 推荐切割行列数 | 宽松 |
+| analyze | **GPT-4o** | `build_analyze_prompt` | 推荐切割行列数 | 宽松 |
 | detect | **GPT-4o** | `DETECT_PROMPT` | 有没有 Waldo + 置信度 | **宽松**（宁可误报，不要漏检） |
-| verify | Claude | `VERIFY_PROMPT` | 这真的是 Waldo 吗 | **严格**（必须看到红白条纹） |
+| verify | **GPT-4o** | `VERIFY_PROMPT` | 这真的是 Waldo 吗 | **严格**（必须看到红白条纹） |
 
 ---
 
@@ -170,6 +166,7 @@ detect 不一定返回精确 bbox → verify 退化为整个 patch 坐标 → ve
 | 参数 | 位置 | 默认值 | 说明 |
 |------|------|--------|------|
 | `max_iterations` | `main.py` | 5 | 最大迭代次数 |
+| `ANALYZE_MAX_TOKENS` | `nodes/analyze.py` | 128 | VLM 响应的 token 上限（过低会截断 JSON，触发 fallback） |
 | `THUMBNAIL_MAX` | `nodes/analyze.py` | 900 | 发给 VLM 的缩略图最大边长 |
 | `MIN_PATCH_PX` | `nodes/segment.py` | 150 | 跳过过小 patch 的下限 |
 | `DETECT_CONFIDENCE_THRESHOLD` | `nodes/detect.py` | 0.15 | detect 过滤阈值 |

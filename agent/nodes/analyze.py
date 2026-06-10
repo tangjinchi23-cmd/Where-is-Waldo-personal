@@ -15,14 +15,14 @@ from prompts import build_analyze_prompt
 
 VLM_PROVIDER = "gpt4o"
 THUMBNAIL_MAX = 900
-ANALYZE_MAX_TOKENS = 64
+ANALYZE_MAX_TOKENS = 128
 THUMB_DIR = "outputs/thumbs"
 
 
 def analyze_node(state: WaldoState) -> dict:
     """
     输入：original_image_path
-    输出：focus_regions（N×M 个格子），grid_rows，grid_cols，region_complexity
+    输出：focus_regions（N×M 个格子），grid_rows，grid_cols
 
     流程：
     1. 生成带网格线的缩略图（以 suggest_rows×suggest_cols 为初始格子提示）
@@ -67,8 +67,6 @@ def analyze_node(state: WaldoState) -> dict:
         "focus_regions": focus_regions,
         "grid_rows": rows,
         "grid_cols": cols,
-        "region_complexity": [0.5] * len(focus_regions),
-        "region_grid_sizes": {},
     }
 
 

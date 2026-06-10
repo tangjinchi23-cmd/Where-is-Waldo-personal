@@ -16,7 +16,7 @@ MIN_PATCH_PX = 150   # 低于此尺寸的 patch 跳过
 
 def segment_node(state: WaldoState) -> dict:
     """
-    输入：original_image_path, focus_regions, grid_size, region_grid_sizes
+    输入：original_image_path, focus_regions, grid_size
     输出：candidates（初始化，仅含 patch_bbox）
 
     注意：每次进入此节点都重置 candidates（新一轮检测）。
@@ -24,10 +24,8 @@ def segment_node(state: WaldoState) -> dict:
     img = Image.open(state["original_image_path"])
     image_size = img.size
 
-    # region_grid_sizes 已废弃，始终用全局 grid_size（analyze 后为 1，calibrate 后为 2）
     patches = segment_all_regions(
         focus_regions=state["focus_regions"],
-        region_grid_sizes={},
         default_grid_size=state["grid_size"],
         image_size=image_size,
         min_patch_size=MIN_PATCH_PX,

@@ -65,7 +65,6 @@ def segment_region(
 
 def segment_all_regions(
     focus_regions: list[list[int]],
-    region_grid_sizes: dict[int, int],
     default_grid_size: int,
     image_size: tuple[int, int],
     min_patch_size: int = 64,
@@ -75,8 +74,7 @@ def segment_all_regions(
 
     Args:
         focus_regions: 区域列表，每项 [x, y, w, h]。
-        region_grid_sizes: {region_idx: grid_size}，缺省用 default_grid_size。
-        default_grid_size: 默认切分粒度。
+        default_grid_size: 切分粒度（analyze 后为 1，calibrate 后为 2）。
         image_size: (img_width, img_height)。
         min_patch_size: 最小 patch 像素尺寸。
         overlap: 相邻 patch 重叠比例。
@@ -86,8 +84,7 @@ def segment_all_regions(
     """
     all_patches = []
     for idx, region in enumerate(focus_regions):
-        grid_size = region_grid_sizes.get(idx, default_grid_size)
-        patches = segment_region(region, grid_size, image_size, min_patch_size, overlap)
+        patches = segment_region(region, default_grid_size, image_size, min_patch_size, overlap)
         for p in patches:
             p["region_idx"] = idx
         all_patches.extend(patches)

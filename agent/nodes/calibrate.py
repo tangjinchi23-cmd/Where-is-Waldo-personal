@@ -38,7 +38,6 @@ def calibrate_node(state: WaldoState) -> dict:
         return {
             "focus_regions": state["focus_regions"],
             "grid_size": CALIBRATE_GRID_SIZE,
-            "region_grid_sizes": {},
         }
 
     new_focus_regions = []
@@ -50,7 +49,6 @@ def calibrate_node(state: WaldoState) -> dict:
     return {
         "focus_regions": new_focus_regions,
         "grid_size": CALIBRATE_GRID_SIZE,
-        "region_grid_sizes": {},
     }
 
 

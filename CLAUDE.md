@@ -1,5 +1,11 @@
 # WhereisWaldoAgent
 
+## 开发约定
+
+- Git commit messages（标题和正文）必须全部用**英文**书写。
+
+---
+
 ## 项目目标
 
 在复杂的 Where's Waldo 图片中，通过 AI Agent 自动定位 Waldo 并返回原图坐标的 bbox。
@@ -242,7 +248,7 @@ WhereisWaldoAgent/
 
 - [x] **analyze 解析失败（部分修复）**：`ANALYZE_MAX_TOKENS` 已从 64 提高到 128。待续：打印完整原始响应定位根因；加重试逻辑
 - [x] **main.py grid_size 参数过时**：`run_agent` 调用已改为 `grid_size=1`，`initial_state` 默认值同步改为 1
-- [ ] **detect 截断导致系统性漏检**：`MAX_PATCHES_PER_ITER=40` 会截掉后 20 个格子（图片右下角）。可选方案：提高上限至 80、随机打乱后截断、或按复杂度优先排序
+- [x] **detect 截断导致系统性漏检**：`MAX_PATCHES_PER_ITER` 提升至 80，截断改为随机采样，避免系统性漏检右下角
 
 ---
 

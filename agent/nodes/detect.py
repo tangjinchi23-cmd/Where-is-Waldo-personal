@@ -1,6 +1,7 @@
 """detect 节点：并发调用 VLM，对每个 patch 判断是否含 Waldo。"""
 
 import os
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,7 +12,7 @@ from llm.vlm_client import get_vlm_client, BaseVLMClient, DetectResult
 # ── 可调参数 ───────────────────────────────────────────────────────────
 DETECT_CONFIDENCE_THRESHOLD = 0.15  # 低于此值的 patch 直接丢弃
 MAX_CONCURRENT = 1                   # 串行调用：50 req/min 限制下最安全
-MAX_PATCHES_PER_ITER = 40            # 每轮 patch 硬性上限，超出则截断
+MAX_PATCHES_PER_ITER = 80            # 每轮 patch 硬性上限，超出则随机截断
 MIN_DETECT_PATCH_PX = 150            # 低于此尺寸的 patch 跳过（VLM 无法可靠识别）
 VLM_PROVIDER = "gpt4o"
 PATCH_DIR = "outputs/patches"
@@ -36,11 +37,11 @@ def detect_node(state: WaldoState) -> dict:
     iteration = state["iteration"]
     os.makedirs(PATCH_DIR, exist_ok=True)
 
-    # 1. 裁剪并保存所有 patch（超出上限时截断，保留靠前的候选）
-    candidates = state["candidates"]
+    # 1. 裁剪并保存所有 patch（超出上限时随机采样，避免系统性漏检右下角）
+    candidates = list(state["candidates"])
     if len(candidates) > MAX_PATCHES_PER_ITER:
-        print(f"[detect] Truncating {len(candidates)} → {MAX_PATCHES_PER_ITER} patches")
-        candidates = candidates[:MAX_PATCHES_PER_ITER]
+        print(f"[detect] Sampling {MAX_PATCHES_PER_ITER}/{len(candidates)} patches randomly")
+        candidates = random.sample(candidates, MAX_PATCHES_PER_ITER)
 
     tasks: list[tuple[int, dict, str]] = []
     skipped = 0

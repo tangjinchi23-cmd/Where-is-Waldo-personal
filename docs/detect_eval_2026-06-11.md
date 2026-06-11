@@ -61,3 +61,56 @@ run 4（旧 prompt @200，修正中的 18 框）出现 2 个正样本失败（pr
 - `original-images/bbox` 现有 18 张真值，可复用为后续整图 IoU 评测的基础
 - 设计与判定细节见 `docs/superpowers/specs/2026-06-11-detect-discriminative-prompt-design.md`
 - 判别式 `DETECT_PROMPT` 文本保存在上述设计文档中；因召回回归，未合入 `prompts.py`（main 仍为旧 prompt）
+
+---
+
+# 下午追加：交互式 prompt engineering（2026-06-11）
+
+## 新增工具（quick 自查，给人用、可调 config）
+
+- `tests/quick_detect_check.py` —— 召回自查：跑 `outputs/eval_patches/*_pos.jpg`，输出召回率 + 失败图号。
+- `tests/quick_falsepos_check.py` —— 误检自查：跑 `*_neg*.jpg`，输出误检率 + 误检文件；支持按图号（`... 10`）只测单图。
+- `tests/quick_config.py` —— 读 `config.json`，构造客户端，并提供 `run_repeats`（prompt engineering 时让模型多输出一行 **reason** 决策依据；正式 agent 不带 reason）。
+- `config.json`（根目录）—— 集中可调参数：`provider/model/temperature/max_tokens/repeats/limit`。改 json 即可，无需动代码。
+
+## 数据修正
+
+- `original-images/bbox` 第 18 行多次修正，最终准确值 `[1250, 70, 1300, 120]`（50×50）。之前的错误标注一度造成 18 的"正样本失败"假象。
+
+## prompt 演进与精确率/召回率前沿（全部实测）
+
+| prompt | 模型 | 召回 | 误检(图10) | 备注 |
+|--------|------|:---:|:---:|------|
+| 轻：眼镜/帽子，任一特征即 true | mini | 100% | 100% | 特征不唯一 → 模型**脑补** → 误检爆表 |
+| 中：必须红白条纹**衫** | mini | 33% | 0% | 衫在 200px 常看不清 → 召回崩 |
+| 中：必须条纹衫 | gpt-5.5 | 67% | 11% | 有 3 张空响应假失败（token 截断）|
+| 帽+眼镜**组合** | gpt-5.5 | 78% | 22% | 仍有 token 截断假失败 |
+| **不列特征 + "可能模糊"提示** | **gpt-5.5** | **88.9%** | ~20% | **最佳；token 修复后无假失败** |
+
+## 关键结论
+
+1. **不列具体特征反而最好**：模型自身就认识 Waldo，枚举特征只帮倒忙——列帽/眼镜诱导脑补（误检爆），列条纹衫逼其过严（召回崩）。一句"Waldo 可能小/被遮挡/模糊，仔细看"的整体判断，召回最高。
+2. **领域真相（用户提供）**：本数据集里 **红白条纹帽 + 眼镜总可见，条纹衫只偶尔出现且模糊** ——所以"以条纹衫为闸门"方向是错的。
+3. **confidence 语义已修**：明确为"Waldo 存在的概率"且必须与 present 一致（修掉了 present=false / conf=0.98 的矛盾）。
+4. **gpt-5.5 token 截断 bug 已修**：推理 token 吃光默认 1024 预算 → 返回空响应被判 present=false/conf=0。修法：`config.json` 加 `max_tokens=4096`、`build_vlm` 透传。修后 2/13 等假失败消失。
+5. **temperature**：mini 设 0 求可复现；gpt-5.5 是推理模型必须 1。
+
+## 当前工作区状态（未 commit）
+
+- `prompts.py` —— `DETECT_PROMPT` = feature-free 版（不列特征 + 模糊提示），confidence 语义已修。**未 commit**。
+- `config.json` —— 当前 `gpt-5.5 / temp=1 / max_tokens=4096 / limit=5`。
+- `tests/quick_*.py` + `tests/quick_config.py` —— 新增，未 commit。
+- `original-images/bbox`、`18_annotated.jpg` —— 数据修正，未 commit。
+- 正式 `agent/nodes/detect.py` 仍为 `gpt-5.4-mini`，**未改**。
+
+---
+
+# 明日工作（2026-06-12）
+
+1. **存档 commit**：把今天有效成果落库——feature-free `DETECT_PROMPT`、`max_tokens` 修复、quick 工具四件套、`config.json`、bbox 修正。建议拆成几个语义化 commit（英文）。
+2. **mini 上测 feature-free 版**（便宜）：把 `config.json` 切回 `gpt-5.4-mini / temp=0`，跑 recall + falsepos。若 mini 在 feature-free 下召回也够用，就不必上 gpt-5.5，省掉 17x 成本。**优先做**。
+3. **更可信的误检率**：目前只测了图10抽5张，FP≈20% 样本太小。跨多图多抽负样本（`config.json` 的 `limit` + 跑全 `quick_falsepos_check.py`），拿到稳定 FP。
+4. **落地决策**：是否把 `agent/nodes/detect.py` 的 `VLM_MODEL` 换 gpt-5.5（权衡 ~17x 慢/贵）；若换，记得 detect 节点也要把 max_tokens 调高（同款 token 截断坑）。
+5. **真失败兜底**：10、11.jpg 是 feature-free + gpt-5.5 下仅剩的真漏检；可结合 verify 阶段或放大送检（见 `outputs/inspect/` 思路）专门处理。
+6. **整图验证**：上述都在 patch 级；最终应跑一遍完整 `main.py` 看端到端能否命中（detect 改动 + verify 联动）。
+

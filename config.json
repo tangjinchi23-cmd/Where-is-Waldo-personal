@@ -1,0 +1,9 @@
+{
+  "_comment": "quick 测试脚本的可调参数。改完直接重跑脚本即可，无需动代码。temperature 仅对非推理模型(gpt-5.4-mini / nano)生效，gpt-5.5 是推理模型必须设为 1。max_tokens：gpt-5.5 推理吃 token，需调高(如 4096)否则返回空响应。limit：误检脚本随机抽查张数，0=全部。",
+  "provider": "gpt4o",
+  "model": "gpt-5.5",
+  "temperature": 1,
+  "max_tokens": 4096,
+  "repeats": 1,
+  "limit": 5
+}

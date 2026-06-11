@@ -35,7 +35,8 @@ from llm.vlm_client import get_vlm_client
 VLM_PROVIDER = "gpt4o"
 VLM_MODEL = "gpt-5.4-mini"
 N_NEG = 9
-PATCH_PX = 200
+# patch 边长，可命令行传参覆盖：python tests/eval_detect_ranking.py 100
+PATCH_PX = int(sys.argv[1]) if len(sys.argv) > 1 else 200
 SEED = 42
 TOP_K = 3
 
@@ -56,7 +57,7 @@ def _score_patch(vlm, image_path: str, bbox: list[int], tag: str) -> tuple[bool,
 def main():
     print("=" * 70)
     print(f"detect 排序评测  provider={VLM_PROVIDER} model={VLM_MODEL} "
-          f"N_NEG={N_NEG} seed={SEED}")
+          f"patch={PATCH_PX}px N_NEG={N_NEG} seed={SEED}")
     print("=" * 70)
 
     boxes = parse_bbox_file(BBOX_FILE)

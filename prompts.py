@@ -11,22 +11,14 @@ from __future__ import annotations
 # ---------- detect 阶段 ----------
 
 DETECT_PROMPT = (
-    "Search this image patch for Waldo (also known as Wally).\n\n"
-    "Waldo's key visual features (most reliable first):\n"
-    "  1. Red and white HORIZONTAL striped shirt — the single most reliable marker\n"
-    "  2. Red and white bobble/pom-pom hat\n"
-    "  3. Round wire-frame glasses\n"
-    "  4. Slim build, often partially hidden among a crowd\n\n"
-    "IMPORTANT: Waldo is deliberately camouflaged and very easy to miss.\n"
-    "If you see ANY of the above features — even partially visible or partially cropped —"
-    " set present=true.\n"
-    "Only set present=false when you are confident that NONE of Waldo's features appear"
-    " anywhere in the image.\n\n"
+    "This is a patch from a 'Where's Waldo' puzzle. Decide whether Waldo (Wally) is in it.\n"
+    "Use your own knowledge of what Waldo looks like. He is often small, partially hidden,\n"
+    "or blurry — look carefully before deciding.\n\n"
     "Reply with ONLY this JSON, no markdown:\n"
-    '{"present": true/false, "confidence": 0.0-1.0}\n\n'
-    "  - present: true if ANY Waldo feature is visible; false only if clearly absent\n"
-    "  - confidence: 0.9-1.0 = features clearly visible; 0.5-0.9 = likely but uncertain;"
-    " 0.1-0.5 = faint or partial match; 0.0 = absent\n"
+    '{"present": true/false, "confidence": 0.0-1.0}\n'
+    "  - present: true if Waldo is in this patch\n"
+    "  - confidence: probability Waldo IS in this patch (0.0 = not here, 1.0 = clearly\n"
+    "    here); must agree with present.\n"
 )
 
 

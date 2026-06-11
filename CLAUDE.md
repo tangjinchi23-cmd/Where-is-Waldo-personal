@@ -10,7 +10,28 @@
 
 在复杂的 Where's Waldo 图片中，通过 AI Agent 自动定位 Waldo 并返回原图坐标的 bbox。
 
-> **当前状态**：已完成大规模重构。全部节点走 OpenAI 视觉模型：**analyze / verify 用 `gpt-5.5`（推理），detect 用 `gpt-5.4-mini`（非推理，召回 100% 且快 ~17x）**。核心设计锚点：**200×200px 是 VLM 可靠识别 Waldo 的最小 patch 尺寸**。
+> **当前状态**：已完成大规模重构。全部节点走 OpenAI 视觉模型：**analyze / verify 用 `gpt-5.5`（推理），detect 用 `gpt-5.4-mini`（非推理，快 ~17x）**。核心设计锚点：**200×200px 是 VLM 可靠识别 Waldo 的最小 patch 尺寸**。
+> ⚠️ 注：detect 当初标称的「召回 100%」是用**误检率 ~57%** 换来的（旧 prompt 无脑说有）；真实精确率极低。详见下方「Detect Prompt Engineering 准则」。
+
+---
+
+## Detect Prompt Engineering 准则（2026-06-11 实测，后续调 prompt 必读）
+
+> 完整实验记录见 `docs/detect_eval_2026-06-11.md`；量化工具见 `tests/quick_detect_check.py`（召回）/ `tests/quick_falsepos_check.py`（误检）/ 根目录 `config.json`（可调 provider/model/temperature/max_tokens/repeats/limit）。
+
+**这些是花了大量 API 成本跑出来的结论，调 `DETECT_PROMPT` 前务必先看，别重复踩坑：**
+
+1. **不要在 prompt 里枚举 Waldo 的特征**。模型自身就认识 Waldo，列特征只会帮倒忙：
+   - 列「眼镜 / 红白帽子」→ 这些在人群里到处都是 → 模型**脑补** → 误检爆表（实测 100%）。
+   - 列「红白条纹**衫**」→ 衫在 200px patch 里常被遮挡/模糊看不清 → 逼模型过严 → **召回崩**（mini 33%）。
+   - ✅ **最佳做法 = 不列特征**：让模型「用自己对 Waldo 的认知去找」+ 一句「他可能小/被遮挡/模糊，仔细看」。gpt-5.5 上召回 **88.9%**、误检 ~20%。
+2. **本数据集的领域真相**：红白**条纹帽 + 眼镜**总可见；**条纹衫只偶尔出现且模糊**。所以判别**不能**以条纹衫为闸门。
+3. **`confidence` 语义必须明确**：= 「Waldo 存在的概率」，且**必须与 `present` 一致**（present=false → conf 接近 0）。否则模型会把它当「我对答案的确信度」，出现 present=false / conf=0.98 的矛盾，污染 detect 的置信度排序。
+4. **gpt-5.5 是推理模型，必有 token 截断坑**：reasoning token 会吃光 `max_completion_tokens`，留给 content 的预算不足 → **返回空响应**被解析成 present=false/conf=0（假失败）。**任何 gpt-5.5 调用（detect/verify/analyze）都要把 max_tokens 调高（≥4096）**。
+5. **mini 有天花板**：受 Waldo 绝对像素尺寸（~30-50px）限制，prompt/缩 patch 都救不动判别力；要质变需上 gpt-5.5。**200×200 是下限，往更小走是负收益**。
+6. **temperature**：mini 设 **0** 求可复现；gpt-5.5 是推理模型**必须 1**（传其它值 API 报错）。
+
+> **正式 agent 与测试的分工**：`DETECT_PROMPT` 保持精简、不要求模型输出 reason（省 token）；prompt engineering 时由 `tests/quick_config.run_repeats` 临时追加「附原因」，只走测试路径。
 
 ---
 

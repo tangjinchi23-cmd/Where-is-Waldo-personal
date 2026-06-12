@@ -114,3 +114,71 @@ run 4（旧 prompt @200，修正中的 18 框）出现 2 个正样本失败（pr
 5. **真失败兜底**：10、11.jpg 是 feature-free + gpt-5.5 下仅剩的真漏检；可结合 verify 阶段或放大送检（见 `outputs/inspect/` 思路）专门处理。
 6. **整图验证**：上述都在 patch 级；最终应跑一遍完整 `main.py` 看端到端能否命中（detect 改动 + verify 联动）。
 
+---
+
+# 2026-06-12 实测：mini feature-free 完整画像（任务 A+B）
+
+把昨天验证有效的 feature-free `DETECT_PROMPT` 放到便宜的 `gpt-5.4-mini`（temp=0，可复现）上做最后一搏，看能否省掉 gpt-5.5 的 ~17x 成本。
+
+## 配置
+
+`config.json`：`gpt-5.4-mini / temp=0 / max_tokens=1024 / repeats=1`。召回跑 `outputs/eval_patches/*_pos.jpg`（18 张正样本）；误检 `limit=0` 跑全部 `*_neg*.jpg`（162 张负样本，n 大可信）。
+
+## 结果
+
+| 指标 | mini (feature-free) | 对照：gpt-5.5 (feature-free) |
+|---|:---:|:---:|
+| 召回 recall | **55.6%** (10/18) | 88.9% |
+| 误检 FP | **11.1%** (18/162) | ~20%（小样本） |
+
+- 召回失败图号：`4, 6, 9, 10, 11, 13, 17, 19`（gpt-5.5 只漏 10、11，mini 额外多漏 4/6/9/13/17/19）。
+- 误检样本：`10_neg5/6, 11_neg7, 12_neg0/6, 13_neg1, 14_neg7, 15_neg3/8, 17_neg8, 2_neg4/7, 3_neg0/7, 5_neg1/2, 9_neg3/4`。
+
+## 关键结论
+
+1. **mini 比 gpt-5.5 召回掉 33 个百分点（88.9%→55.6%）**，temp=0 单跑即稳定（非采样噪声），是干净对比。**省 17x 成本的希望落空。**
+2. **失败原因高度一致 → 再次印证「绝对像素天花板」**：8 个漏检 reason 几乎都是「I do not see the striped shirt / hat / glasses」，不是判据问题，是 mini 在 ~30-50px 的 Waldo 上分辨不出特征。`4.jpg`（18×33，数据集最小 Waldo）漏检完全在预期。
+3. **mini 的低 FP 是假象**：11.1% < gpt-5.5 的 ~20%，但这不是 mini 更准，而是它「眼神差、更保守」——连真 Waldo 都看不清，自然也更少在负样本触发。同一天花板的两面。
+4. **部分「误检」疑为数据集诱饵**：负样本与真值零重叠，但 Where's Waldo 原图故意放假 Waldo；模型 reason 言之凿凿见条纹衫+帽，一部分是裁到诱饵所致，不全是纯错误。
+5. **⚠️ mini 不遵守 confidence 语义**：出现 `present=False conf=0.97` / `present=True conf=0.97`，conf 恒高且与 present 解耦。昨天「conf=Waldo 存在概率、与 present 一致」的修复只在 gpt-5.5 上成立。若正式 detect 用 mini，置信度排序会被污染（同破 prompt 全 0.99 之病）。
+
+## 决策（钉死）
+
+**mini 这条路彻底排除，detect 必须上 `gpt-5.5`。** → 进任务 4（改 `agent/nodes/detect.py` 的 `VLM_MODEL`，并同步调高 max_tokens 防 token 截断假漏检）。
+
+---
+
+# 2026-06-12 追加：Qwen-VL 系列横向实验
+
+动机：Qwen-VL 走 DashScope，国内便宜、不受 OpenAI 限流，若判别力够可作 gpt-5.5 之外的备选。复用 quick 管线（Qwen client 签名兼容、强制 JSON、`DASHSCOPE_API_KEY` 已配）；顺手把 `tests/quick_config.build_vlm` 扩展为对 `qwen` 也透传 temperature/max_tokens，config.json 即可统一控温复现。
+
+## 账号可访问性
+
+- ✅ `qwen-vl-max`、`qwen-vl-plus` 可用。
+- ❌ `qwen-vl-max-latest`、`qwen2.5-vl-72b/32b-instruct`、`qwen-vl-max-2025-04-08` 快照 → 403 无权限；`qwen3-vl-plus` → 名称无效。
+
+## 结果（feature-free prompt, temp=0, 召回 18 正样本 / 误检 162 负样本全量）
+
+| 模型 | 召回 | 误检 FP | 判别力(召回−FP) | 速度 |
+|---|:---:|:---:|:---:|:---:|
+| qwen-vl-**max** | 11.1% (2/18) | ~0（极保守） | ~10 | 5.6s |
+| qwen-vl-**plus** | 88.9% (16/18)* | **80.2%** (130/162) | **8.7** | 5.6s |
+| gpt-5.4-mini（对照） | 55.6% | 11.1% | 44.5 | ~1s |
+| gpt-5.5（对照） | 88.9% | ~20% | 68.9 | ~17s |
+
+\* plus 实测 15/18，14.jpg 为一次性空响应抖动（重跑即 present=true，1024/4096 token 均正常），真实 16/18。
+
+## 关键结论
+
+1. **两个可用 Qwen 模型都没有有用的判别力**，卡在精确率/召回率曲线的两个极端：
+   - `qwen-vl-max` **过严**：reason 一律「No figure matching Waldo's distinctive striped shirt and hat」，要求看清完整特征装束，200px 里 ~30-50px 的 Waldo 认不出 → 召回崩到 11%。
+   - `qwen-vl-plus` **过松**：对 80% 负样本都信誓旦旦「Waldo clearly visible, wearing his iconic red-and-white striped shirt」→ 高召回是「无脑说有」的副产品，等同当初全 0.99 的破 prompt。
+2. **反直觉**：plus（更便宜、通常更弱）召回远高于旗舰 max——但这是「门槛低」而非「判别强」，FP 一测就现原形。**召回必须与 FP 合看，单看召回会被 plus 骗。**
+3. **confidence 完全失效**：max 全 0.95、plus 全 0.90-0.95，且与 present 解耦（max 出现 present=false/conf=0.95）。Qwen 不遵守 confidence 语义，比 mini 更彻底，detect 排序直接报废。
+4. **反向坐实数据集诱饵假说**：plus 在零重叠负样本上仍言之凿凿见条纹衫，证明负样本里布满红白诱饵；能区分真 Waldo 与诱饵的（gpt-5.5）才有判别力，只认条纹的（qwen-plus）必然 FP 爆表。
+5. **可靠性隐忧**：Qwen 偶发空响应（14_pos），被 quick 脚本计为 present=false 假漏检，正式接入需重试兜底。
+
+## 决策
+
+**Qwen 系列（账号当前可访问范围内）无法替代 gpt-5.5，排除。** detect 落地仍按任务 4 走 gpt-5.5。若未来拿到 `qwen2.5-vl-72b` 等更强型号权限，可再测一轮（72b 判别力或显著优于 max/plus）。
+

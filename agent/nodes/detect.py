@@ -15,10 +15,15 @@ MAX_CONCURRENT = 1                   # 串行调用：50 req/min 限制下最安
 MAX_PATCHES_PER_ITER = 80            # 每轮 patch 硬性上限，超出则随机截断
 MIN_DETECT_PATCH_PX = 150            # 低于此尺寸的 patch 跳过（VLM 无法可靠识别）
 VLM_PROVIDER = "gpt4o"
-# detect 用非推理模型：实验（tests/check_gpt4o.py）证明 gpt-5.4-mini 在 detect 任务上
-# 召回 100%（优于 gpt-5.5 的 80%）、速度快 ~17x（1s vs 17s/张）。detect 只需高召回，
-# 唯一代价（误报）由 verify 阶段兜底，故非推理模型更契合本节点定位。
-VLM_MODEL = "gpt-5.4-mini"
+# detect 用推理模型 gpt-5.5：2026-06-12 量化评测（docs/detect_eval_2026-06-11.md）证明
+# 只有它在 200px patch 上兼具高召回（88.9%）与可用判别力（召回−误检≈69）。非推理
+# 候选已逐一排除：gpt-5.4-mini 受绝对像素天花板限制召回仅 55.6%；qwen-vl-max 过严
+# （召回 11%）、qwen-vl-plus 过松（误检 80%），判别力均≈9。代价是 ~17x 慢/贵，误报由
+# verify 阶段兜底。
+VLM_MODEL = "gpt-5.5"
+# gpt-5.5 是推理模型：reasoning token 会先吃掉 max_completion_tokens，预算不足会返回
+# 空响应被解析成 present=false/conf=0（假漏检）。故 detect 调用必须调高，对齐 analyze/verify。
+DETECT_MAX_TOKENS = 4096
 PATCH_DIR = "outputs/patches"
 
 # 限流重试
@@ -36,7 +41,7 @@ def detect_node(state: WaldoState) -> dict:
     2. 并发调用 VLM（ThreadPoolExecutor）
     3. 合并结果，过滤低置信度，按置信度降序排列
     """
-    vlm = get_vlm_client(VLM_PROVIDER, model=VLM_MODEL)
+    vlm = get_vlm_client(VLM_PROVIDER, model=VLM_MODEL, max_tokens=DETECT_MAX_TOKENS)
     image_path = state["original_image_path"]
     iteration = state["iteration"]
     os.makedirs(PATCH_DIR, exist_ok=True)

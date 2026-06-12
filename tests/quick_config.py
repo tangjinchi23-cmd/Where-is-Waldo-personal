@@ -45,11 +45,12 @@ def load_config() -> dict:
 def build_vlm(cfg: dict):
     """按 config 构造 VLM 客户端。
 
-    temperature 只对 gpt4o 非推理模型有意义，故仅在 provider=gpt4o 时透传；
-    其它 provider 忽略该参数，避免给不接受 temperature 的客户端传参报错。
+    temperature / max_tokens 只对 gpt4o、qwen 这两个 OpenAI 兼容客户端透传
+    （它们的 __init__ 都接受这两个参数）；claude / gemini 忽略，避免给不接受
+    该参数的客户端传参报错。
     """
     kwargs = {"model": cfg["model"]}
-    if cfg["provider"] == "gpt4o":
+    if cfg["provider"] in ("gpt4o", "qwen"):
         if cfg.get("temperature") is not None:
             kwargs["temperature"] = cfg["temperature"]
         if cfg.get("max_tokens"):

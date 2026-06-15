@@ -43,5 +43,8 @@ original-images/*_annotated.png
 htmlcov/
 *.log
 
+# Local tooling / assistant config (not shared)
+.claude/
+
 # Misc
 *.tmp

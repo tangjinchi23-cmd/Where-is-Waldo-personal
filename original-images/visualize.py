@@ -104,8 +104,8 @@ if __name__ == "__main__":
     # ===== 使用示例 =====
     # 1) 像素坐标格式 [x_min, y_min, x_max, y_max]
     draw_boxes(
-        image_path="18.jpg",          # 改成你的图片路径
-        boxes=[1250, 70, 1300, 120],        # Claude 给你的 bbox
+        image_path="11.jpg",          # 改成你的图片路径
+        boxes=[456, 1530, 488, 1580],        # Claude 给你的 bbox
         fmt="pixel",
         labels=["Waldo"],
         color="red",

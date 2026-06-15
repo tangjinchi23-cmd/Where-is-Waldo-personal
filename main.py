@@ -18,7 +18,7 @@ def main():
     print(f"[main] Running WaldoAgent on: {image_path}")
 
     final_state = run_agent(image_path, grid_size=1)
-
+    # This is a test to the new branch
     result = final_state.get("verified_result")
     if result:
         print(f"[main] Waldo confirmed at bbox: {result}")

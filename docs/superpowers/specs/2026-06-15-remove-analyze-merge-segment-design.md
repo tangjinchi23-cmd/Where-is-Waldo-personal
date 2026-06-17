@@ -1,8 +1,25 @@
 # 设计规格：删除 analyze 节点，切图职责并入 segment
 
-- 日期：2026-06-15
+- 日期：2026-06-15（2026-06-17 几何/参数细化，见 §0）
 - 状态：已批准，待写实现计划
-- 关联：极限尺寸测试（`scripts/gemini_limit.py` + `outputs/gemini_limit_*.log`）、detect 选型结论（记忆 `detect-bottleneck-findings`）
+- 关联：极限尺寸测试（`scripts/gemini_limit.py` + `outputs/gemini_limit_*.log`）、detect 选型结论（记忆 `detect-bottleneck-findings`）、detect 切 Gemini + 路由（记忆 `detect-gemini-routing`）
+
+---
+
+## 0. 2026-06-17 细化（切片几何与参数，优先于下文相应描述）
+
+§4–§6 的「按目标边长 ceil 均匀分格」在本次细化中**改为固定尺寸滑窗 + 末块贴边对齐**，理由：固定尺寸让 detect 永远收到**恰好 `TILE_SIZE`px** 的切片，与 detect 评测所用 256px patch 尺寸一致，判别行为更可复现。决策如下，**与下文冲突处以本节为准**：
+
+| 决策点 | 06-15 原案 | 06-17 细化（生效） |
+|--------|-----------|---------------------|
+| 切分方式 | `ceil(dim/target)` 均匀分格（块大小随图浮动） | **固定 `TILE_SIZE` 滑窗 + 末块贴边**（每块恰好 `TILE_SIZE×TILE_SIZE`，末排/列贴 `length-TILE_SIZE` 起点） |
+| 目标边长常量名 | `PATCH_TARGET_PX` | **`TILE_SIZE`**，默认 **256**、可调（极限测试证明 256 覆盖含 2.jpg 在内的所有可检出图；384 在小 Waldo 图上会漏，故默认仍取 256，留作可调以便提速时手动上调） |
+| overlap | 0.12 | **`TILE_OVERLAP=0.15`**，可调；`stride = round(TILE_SIZE×(1-TILE_OVERLAP))` |
+| 切分纯函数 | `grid_segment_region(region, target_px, …)`（ceil 分格） | **`tile_region(region, tile_size, image_size, overlap, min_patch_size)`**（固定尺寸滑窗+贴边） |
+
+**切片算法（每轴）**：起点 `0, stride, 2·stride, …` 保留所有 `< length-TILE_SIZE` 者，再补一个贴边起点 `length-TILE_SIZE` → 保证每块恰好 `TILE_SIZE`、全图无空洞（末排与前排多重叠些）。`length ≤ TILE_SIZE` 时退化为单块（取整边）。末块贴边可能与前一块近重复（差几十 px），属可接受冗余，不去重以保证覆盖。
+
+**与已落地的 detect/路由的衔接**：detect 已切 Gemini、按 `present(has_waldo)` 过滤、`MAX_PATCHES_PER_ITER=80`（256px@2048×1251 约 54 块，仍在上限内）；detect 后已有「单候选直接 visualize」条件路由（见记忆 `detect-gemini-routing`），本次切片改动不影响该路由。
 
 ---
 

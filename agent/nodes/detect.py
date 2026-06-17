@@ -10,19 +10,19 @@ from vision.image_utils import crop_to_pil, save_patch
 from llm.vlm_client import get_vlm_client, BaseVLMClient, DetectResult
 
 # ── 可调参数 ───────────────────────────────────────────────────────────
-DETECT_CONFIDENCE_THRESHOLD = 0.15  # 低于此值的 patch 直接丢弃
+DETECT_CONFIDENCE_THRESHOLD = 0.15  # 保留备用：Gemini confidence 失效，当前不再用于过滤
 MAX_CONCURRENT = 1                   # 串行调用：50 req/min 限制下最安全
 MAX_PATCHES_PER_ITER = 80            # 每轮 patch 硬性上限，超出则随机截断
 MIN_DETECT_PATCH_PX = 150            # 低于此尺寸的 patch 跳过（VLM 无法可靠识别）
-VLM_PROVIDER = "gpt4o"
-# detect 用推理模型 gpt-5.5：2026-06-12 量化评测（docs/detect_eval_2026-06-11.md）证明
-# 只有它在 200px patch 上兼具高召回（88.9%）与可用判别力（召回−误检≈69）。非推理
-# 候选已逐一排除：gpt-5.4-mini 受绝对像素天花板限制召回仅 55.6%；qwen-vl-max 过严
-# （召回 11%）、qwen-vl-plus 过松（误检 80%），判别力均≈9。代价是 ~17x 慢/贵，误报由
-# verify 阶段兜底。
-VLM_MODEL = "gpt-5.5"
-# gpt-5.5 是推理模型：reasoning token 会先吃掉 max_completion_tokens，预算不足会返回
-# 空响应被解析成 present=false/conf=0（假漏检）。故 detect 调用必须调高，对齐 analyze/verify。
+# detect 用 Gemini：2026-06-15 全量复验（docs/工作日志.md）证明 gemini-3.5-flash 在
+# 200px patch 上 present 二元信号最强（召回 94.4% / 误检 4.9% / 判别力 89.5），优于
+# gpt-5.5（召回 88.9% / 误检 ~20%），且更快更省。⚠️ 其 confidence 彻底失效（与 present
+# 矛盾率 77%、给负样本也打高分），故 detect 一律按 present(has_waldo) 过滤，绝不依赖
+# confidence 排序；候选交由 verify（仍用 gpt-5.5）做精度兜底。
+VLM_PROVIDER = "gemini"
+VLM_MODEL = "gemini-3.5-flash"
+# 旧配置（可切回作为备份）：VLM_PROVIDER="gpt4o" / VLM_MODEL="gpt-5.5"
+# DETECT_MAX_TOKENS：Gemini 非推理模型不需要这么高，保留不影响（其 call 用 max_output_tokens）。
 DETECT_MAX_TOKENS = 4096
 PATCH_DIR = "outputs/patches"
 
@@ -39,7 +39,7 @@ def detect_node(state: WaldoState) -> dict:
     流程：
     1. 把所有 patch 从原图裁剪并保存（串行，I/O 快）
     2. 并发调用 VLM（ThreadPoolExecutor）
-    3. 合并结果，过滤低置信度，按置信度降序排列
+    3. 合并结果，按 present(has_waldo) 过滤，confidence 降序仅作多候选时的稳定排序
     """
     vlm = get_vlm_client(VLM_PROVIDER, model=VLM_MODEL, max_tokens=DETECT_MAX_TOKENS)
     image_path = state["original_image_path"]
@@ -100,9 +100,11 @@ def detect_node(state: WaldoState) -> dict:
         })
 
     before = len(updated)
-    updated = [c for c in updated if c["confidence"] >= DETECT_CONFIDENCE_THRESHOLD]
+    # Gemini confidence 失效，按 present(has_waldo) 二元信号过滤；保留 confidence 降序
+    # 仅为多候选时给 verify 一个稳定顺序，不代表判别力。
+    updated = [c for c in updated if c["has_waldo"]]
     updated.sort(key=lambda c: c["confidence"], reverse=True)
-    print(f"[detect] {len(updated)}/{before} patches passed threshold={DETECT_CONFIDENCE_THRESHOLD}")
+    print(f"[detect] {len(updated)}/{before} patches with present=true")
 
     return {"candidates": updated}
 

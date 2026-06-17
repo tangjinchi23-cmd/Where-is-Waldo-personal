@@ -18,12 +18,22 @@ def main():
     print(f"[main] Running WaldoAgent on: {image_path}")
 
     final_state = run_agent(image_path, grid_size=1)
-    # This is a test to the new branch
+
     result = final_state.get("verified_result")
+    candidates = final_state.get("candidates") or []
+    # detect 后单候选会跳过 verify（见 agent/graph.py:route_after_detect），
+    # 此时 verified_result 为 None 但仍是「相信 detect 高精度」的有信心结果，
+    # 不应与「verify 全否决/无候选」混为一谈。用 candidate 是否带 "verified"
+    # 字段判断 verify 实际是否跑过。
+    verify_ran = any("verified" in c for c in candidates)
     if result:
-        print(f"[main] Waldo confirmed at bbox: {result}")
+        print(f"[main] Waldo confirmed (verified) at bbox: {result}")
+    elif candidates and not verify_ran:
+        best = candidates[0]
+        bbox = best.get("orig_bbox") or best.get("patch_bbox")
+        print(f"[main] Waldo located (detect-only, verify skipped) at bbox: {bbox}")
     else:
-        print("[main] Waldo not confirmed — best-guess bbox saved to outputs/ (if any candidates exist)")
+        print("[main] Waldo not found.")
 
 
 if __name__ == "__main__":

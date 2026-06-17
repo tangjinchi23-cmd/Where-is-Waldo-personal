@@ -34,7 +34,7 @@ def tile_region(
         region: [x, y, w, h]，原图坐标的目标区域。
         tile_size: 每块边长（像素）。
         image_size: (img_width, img_height)，用于边界 clamp。
-        overlap: 相邻 patch 重叠比例；stride = round(tile_size*(1-overlap))。
+        overlap: 相邻 patch 重叠比例，取值 [0, 1)；stride = round(tile_size*(1-overlap))。
 
     Returns:
         patch 字典列表，每项 {"bbox": [x, y, w, h], "row": int, "col": int}。
@@ -42,6 +42,9 @@ def tile_region(
     """
     rx, ry, rw, rh = region
     img_w, img_h = image_size
+    # 防御：region 不应超出图像；clamp 实际可用宽高，保证末块仍为固定尺寸
+    rw = min(rw, img_w - rx)
+    rh = min(rh, img_h - ry)
     stride = max(1, round(tile_size * (1 - overlap)))
     xs = _axis_starts(rx, rw, tile_size, stride)
     ys = _axis_starts(ry, rh, tile_size, stride)

@@ -72,3 +72,15 @@ def test_tiles_never_exceed_image_bounds():
         x, y, w, h = p["bbox"]
         assert 0 <= x and x + w <= W
         assert 0 <= y and y + h <= H
+
+
+def test_region_exceeding_image_is_clamped_to_fixed_size():
+    # region 越界（rx+rw=1200 > img_w=1000）；clamp 后末块仍应是 TILE，不出界
+    patches = tile_region([700, 0, 500, 600], TILE, (1000, 600), OVERLAP)
+    assert patches
+    for p in patches:
+        x, y, w, h = p["bbox"]
+        assert w == TILE and h == TILE        # 仍是固定尺寸
+        assert x + w <= 1000 and y + h <= 600  # 不出界
+    xs = sorted({p["bbox"][0] for p in patches})
+    assert xs[-1] == 1000 - TILE               # 末块贴图右边

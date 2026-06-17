@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from llm.vlm_client import (
     DetectResult,
     VerifyResult,
+    SelectResult,
     BaseVLMClient,
     ClaudeVLMClient,
     get_vlm_client,
@@ -169,6 +170,83 @@ class TestParseVerify:
         text = '{"is_waldo": false, "confidence": 0.1}'
         result = BaseVLMClient._parse_verify(text)
         assert result.raw_response == text
+
+
+# ================================================================
+# BaseVLMClient._parse_select（横向单选）
+# ================================================================
+
+class TestParseSelect:
+    def test_choice_and_per_image(self):
+        text = '{"choice": 0, "confidence": 0.95, "per_image": [true, false, false]}'
+        r = BaseVLMClient._parse_select(text)
+        assert isinstance(r, SelectResult)
+        assert r.choice == 0
+        assert r.confidence == pytest.approx(0.95)
+        assert r.per_image == [True, False, False]
+        assert r.raw_response == text
+
+    def test_choice_none_is_minus_one(self):
+        r = BaseVLMClient._parse_select('{"choice": -1, "confidence": 0.0, "per_image": [false, false]}')
+        assert r.choice == -1
+
+    def test_missing_choice_defaults_minus_one(self):
+        r = BaseVLMClient._parse_select("{}")
+        assert r.choice == -1
+        assert r.confidence == 0.0
+        assert r.per_image == []
+
+    def test_invalid_json_defaults(self):
+        r = BaseVLMClient._parse_select("not json at all")
+        assert r.choice == -1
+        assert r.per_image == []
+
+    def test_choice_coerced_to_int(self):
+        r = BaseVLMClient._parse_select('{"choice": "2", "confidence": 0.5}')
+        assert r.choice == 2
+
+    def test_non_numeric_choice_defaults_minus_one(self):
+        r = BaseVLMClient._parse_select('{"choice": "none"}')
+        assert r.choice == -1
+
+    def test_per_image_non_list_coerced_to_empty(self):
+        r = BaseVLMClient._parse_select('{"choice": 0, "per_image": "oops"}')
+        assert r.per_image == []
+
+    def test_confidence_coerced_to_float(self):
+        r = BaseVLMClient._parse_select('{"choice": 1, "confidence": 1}')
+        assert isinstance(r.confidence, float)
+        assert r.confidence == 1.0
+
+
+# ================================================================
+# select() 能力：默认不支持，需 provider 覆盖
+# ================================================================
+
+class TestSelectCapability:
+    def test_subclass_without_override_raises_notimplemented(self):
+        class Dummy(BaseVLMClient):
+            def call(self, image_path, prompt, max_tokens=None):
+                return ""
+            def detect(self, image_path):
+                return None
+            def verify(self, image_path):
+                return None
+
+        with pytest.raises(NotImplementedError):
+            Dummy().select(["a.jpg", "b.jpg"])
+
+    def test_claude_does_not_support_select(self):
+        client = get_vlm_client("claude")
+        with pytest.raises(NotImplementedError):
+            client.select(["a.jpg"])
+
+
+class TestSelectResultDataclass:
+    def test_defaults(self):
+        r = SelectResult(choice=0, confidence=0.9)
+        assert r.per_image == []
+        assert r.raw_response == ""
 
 
 # ================================================================

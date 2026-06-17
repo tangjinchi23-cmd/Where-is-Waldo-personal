@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from llm.base import BaseVLMClient
-from llm.results import DetectResult, VerifyResult
+from llm.results import DetectResult, VerifyResult, SelectResult
 
 
 class GeminiVLMClient(BaseVLMClient):
@@ -33,3 +33,17 @@ class GeminiVLMClient(BaseVLMClient):
 
     def verify(self, image_path: str) -> VerifyResult:
         return self._parse_verify(self.call(image_path, self.VERIFY_PROMPT))
+
+    def select(self, image_paths: list[str]) -> SelectResult:
+        """把多张候选裁剪图一次性发给 Gemini，横向单选哪张是真 Waldo。"""
+        import PIL.Image
+        model = self._genai.GenerativeModel(self._model_name)
+        content: list = [self.SELECT_PROMPT]
+        for i, path in enumerate(image_paths):
+            content.append(f"Image {i}:")
+            content.append(PIL.Image.open(path))
+        response = model.generate_content(
+            content,
+            generation_config={"max_output_tokens": self._max_tokens},
+        )
+        return self._parse_select(response.text)

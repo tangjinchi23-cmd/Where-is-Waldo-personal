@@ -13,7 +13,8 @@
 > **当前状态**（2026-06-17 重构后）：流水线 = `segment(确定性切片) → detect(Gemini) → [路由] → verify/visualize`。
 > - **analyze 节点已删除**：VLM 推荐切割行列数被证明优化了错误的变量（该切多大由 Waldo 绝对像素决定，切图前不可知），改为 **segment 直接做确定性固定尺寸滑窗切片**（`TILE_SIZE=256` 可调、末块贴边对齐、`TILE_OVERLAP=0.15`）。
 > - **detect 改用 `gemini-3.5-flash`**：全量复验（`docs/工作日志.md`）证明其 present 二元信号最强（召回 94.4% / 误检 4.9%）。⚠️ 其 `confidence` 失效（与 present 矛盾率 77%），故 detect 一律按 **present(has_waldo) 二元信号过滤**，绝不依赖 confidence 排序。
-> - **detect 后条件路由**：单候选（或空）直接 visualize、跳过 verify；多候选（少数会冒 false positive 的图）才走 verify 去伪存真。verify 仍用 `gpt-5.5` 做精度兜底。
+> - **detect 后条件路由**：单候选（或空）直接 visualize、跳过 verify；多候选（少数会冒 false positive 的图）才走 verify 去伪存真。
+> - **verify 用 `gemini-3.5-flash` 横向单选**：把全部 present 候选的裁剪图**一次性**发给 Gemini，在候选间相对比较、只选唯一真 Waldo（返回 index + per_image）。实测优于 gpt-5.5 逐张判断——逐张在密集难图上会把多张都判 Yes、且被红白条纹误导、再靠 confidence 排序挑错（诊断见 `scripts/compare_verify_candidates.py`）。
 > - 核心设计锚点：**256×256px 是覆盖含小 Waldo 难图（如 2.jpg）的安全切片下限**（极限测试 `scripts/gemini_limit.py`）。
 > ⚠️ 下方「Detect Prompt Engineering 准则」「技术栈」等小节部分仍保留 gpt-5.5 时期的实测结论，作为 prompt 调参与可切换 provider 的历史参考。
 
@@ -94,7 +95,7 @@ START
 [detect]    ← VLM(gemini-3.5-flash) 对每个 patch 判断是否含 Waldo
               按 present(has_waldo) 二元信号过滤（Gemini confidence 失效，不用于排序）
   ↓
- ├─ 候选 > 1 ─→ [verify]    ← 取 top-K 候选，从原图裁出（带 30% padding），VLM(gpt-5.5) 二次确认
+ ├─ 候选 > 1 ─→ [verify]    ← 全部候选裁出（带 30% padding），VLM(gemini-3.5-flash) 横向单选唯一真 Waldo
  │                ↓
  └─ 候选 ≤ 1 ─────┴─→ [visualize] ← 优先 verified_result；为空则取候选 patch_bbox，画红框
                           ↓
@@ -107,7 +108,7 @@ START
 ### 两阶段检测设计
 
 - **阶段一（detect）**：VLM(gemini-3.5-flash) 看固定 256×256px 的 patch，判断"有没有 Waldo"。只用 `present` 二元信号（Gemini confidence 与 present 矛盾率 77%，不可用于排序/阈值）。
-- **阶段二（verify）**：仅在多候选时触发；将候选区域从**原图**裁出（加 30% padding、最小 120px），发给 `gpt-5.5` 二次确认"这真的是 Waldo 吗"，作为 Gemini 高召回的精度兜底。
+- **阶段二（verify）**：仅在多候选时触发；将全部候选区域从**原图**裁出（加 30% padding、最小 120px），**一次性**发给 `gemini-3.5-flash` 做横向单选「这几张里哪张才是 Waldo」（返回 `{choice, confidence, per_image}`）。强制相对比较，避免逐张判断的误检与条纹误导。
 
 ---
 
@@ -133,7 +134,7 @@ class WaldoState(TypedDict):
 |------|----------|------|------|------|
 | `segment`（入口） | — | `original_image_path`, `focus_regions` | `candidates`（仅含 patch_bbox 等几何字段） | 确定性固定尺寸滑窗切片，TILE_SIZE×TILE_SIZE、末块贴边、跳过 < 150px 块。不调 VLM |
 | `detect` | gemini-3.5-flash | `candidates`, `original_image_path` | `candidates`（含 has_waldo / confidence） | 按 present(has_waldo) 二元信号过滤；confidence 仅作多候选时稳定排序，无判别意义 |
-| `verify` | gpt-5.5 | `candidates` 中 top-K（仅多候选时触发） | `candidates`（verified 字段）+ `verified_result` | 裁出带 padding 的区域 VLM 二次确认 |
+| `verify` | gemini-3.5-flash | 全部 present 候选（上限 VERIFY_MAX，仅多候选时触发） | `candidates`（verified 字段）+ `verified_result` | 裁出带 padding 的区域，横向单选唯一真 Waldo |
 | `visualize` | — | `verified_result` / 最佳候选 | 标注图片路径 | 调用 `tools/visualize.py` 画红框 |
 
 ### 图组装（agent/graph.py）
@@ -155,16 +156,17 @@ get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
 | Provider | 类 | 默认 model | 备注 |
 |----------|----|-----------|------|
 | claude | `ClaudeVLMClient` | `claude-sonnet-4-6` | 可切换备用 |
-| gpt4o | `GPT4oVLMClient` | `gpt-5.5` | **verify 默认**用它（推理模型做精度兜底，须传 `max_tokens≥4096`）；detect 已切 Gemini |
-| gemini | `GeminiVLMClient` | `gemini-1.5-flash`（类默认）；**detect 实际用 `gemini-3.5-flash`** | **detect 默认**；present 二元信号强，confidence 不可用 |
+| gpt4o | `GPT4oVLMClient` | `gpt-5.5` | 推理模型，现已不在主流程默认链上（detect/verify 均走 Gemini）；可切换备用 |
+| gemini | `GeminiVLMClient` | `gemini-1.5-flash`（类默认）；**detect/verify 实际用 `gemini-3.5-flash`** | **detect + verify 默认**；detect 用 present 二元信号，verify 用横向单选 `select()` |
 | qwen | `QwenVLMClient` | `qwen-vl-max` | 走 DashScope OpenAI 兼容接口；需 `DASHSCOPE_API_KEY` |
 
-每个 client 实现三方法：
+每个 client 实现 call / detect / verify 三方法；Gemini 另实现 `select`（横向单选）：
 - `call(image_path, prompt, max_tokens)` —— 发图 + 自定义 prompt，返回原始文本
 - `detect(image_path) -> DetectResult(has_waldo, confidence, bbox, raw_response)`
 - `verify(image_path) -> VerifyResult(is_waldo, confidence, raw_response)`
+- `select(image_paths) -> SelectResult(choice, confidence, per_image, raw_response)` —— 多图横向单选；`BaseVLMClient.select` 默认抛 `NotImplementedError`，仅 Gemini 覆盖
 
-`DETECT_PROMPT` / `VERIFY_PROMPT` 定义在 `prompts.py`；`_extract_json()` 容错解析 markdown 代码块。
+`DETECT_PROMPT` / `VERIFY_PROMPT` / `SELECT_PROMPT` 定义在 `prompts.py`；`_extract_json()` 容错解析 markdown 代码块。
 
 ---
 
@@ -190,7 +192,8 @@ get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
 | | `MAX_CONCURRENT` | 1 | 并发数（50 req/min 限制下保守串行） |
 | | `MAX_PATCHES_PER_ITER` | 80 | patch 硬上限，超出随机采样（256px 切片下通常远低于此） |
 | | `MAX_RETRIES` / `RETRY_BASE_WAIT` | 4 / 15s | 429 限流指数退避：15→30→60→120 |
-| `nodes/verify.py` | `VERIFY_MAX` | 12 | 送验证的候选数安全上限；验证全部 present 候选（不靠 Gemini confidence 排序），仅多候选路径触发 |
+| `nodes/verify.py` | `VERIFY_MAX` | 12 | 送横向单选的候选数安全上限；全部 present 候选一次性比较，仅多候选路径触发 |
+| | `SELECT_MAX_TOKENS` | 1024 | Gemini 横向单选响应 token 上限（含 per_image 数组） |
 | | `PADDING_RATIO` / `MIN_VERIFY_SIZE` | 0.3 / 120px | 裁剪 padding 与最小尺寸 |
 
 ---
@@ -213,7 +216,7 @@ WhereisWaldoAgent/
 │       ├── __init__.py
 │       ├── segment.py           # 入口：确定性固定尺寸滑窗切片为 patch
 │       ├── detect.py            # gemini-3.5-flash 判断 patch 是否含 Waldo
-│       ├── verify.py            # gpt-5.5 二次确认候选（多候选时）
+│       ├── verify.py            # gemini-3.5-flash 横向单选候选（多候选时）
 │       └── visualize.py         # 在原图标注结果
 ├── llm/                         # VLM 适配器层
 │   ├── __init__.py

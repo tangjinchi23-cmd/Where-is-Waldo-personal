@@ -24,7 +24,25 @@ DETECT_PROMPT = (
 )
 
 
-# ---------- verify 阶段 ----------
+# ---------- verify 阶段（横向单选） ----------
+
+# 把多张候选裁剪图一次性发给 VLM，强制在候选间横向比较、只选一张真 Waldo。
+# 实测优于逐张独立判断：逐张判断在密集难图上会把多张都判 Yes、且易被红白条纹误导。
+SELECT_PROMPT = (
+    "These are several close-up crops from a 'Where's Waldo' puzzle, each suspected to "
+    "contain Waldo (Wally). They are given in order, indexed from 0. At most ONE of them "
+    "is the real Waldo. Use your own knowledge of what Waldo looks like (red-and-white "
+    "striped bobble hat, round glasses, red-white striped shirt, slim build). Do not be "
+    "fooled by red-white stripes alone — many decoys have stripes.\n\n"
+    "Reply with ONLY this JSON, no markdown:\n"
+    '{"choice": <index of the real Waldo, or -1 if none is Waldo>, '
+    '"confidence": 0.0-1.0, "per_image": [true/false, ...]}\n'
+    "  - choice: 0-based index of the crop that is the real Waldo (-1 if none)\n"
+    "  - per_image: for each crop in the given order, true if that crop looks like Waldo\n"
+)
+
+
+# ---------- verify 阶段（逐张确认，保留备用） ----------
 
 VERIFY_PROMPT = (
     "You are performing a final verification step in a Where's Waldo search.\n"

@@ -6,14 +6,15 @@ import json
 import re
 from abc import ABC, abstractmethod
 
-from prompts import DETECT_PROMPT, VERIFY_PROMPT
-from llm.results import DetectResult, VerifyResult
+from prompts import DETECT_PROMPT, VERIFY_PROMPT, SELECT_PROMPT
+from llm.results import DetectResult, VerifyResult, SelectResult
 
 
 class BaseVLMClient(ABC):
 
     DETECT_PROMPT = DETECT_PROMPT
     VERIFY_PROMPT = VERIFY_PROMPT
+    SELECT_PROMPT = SELECT_PROMPT
 
     @abstractmethod
     def call(self, image_path: str, prompt: str, max_tokens: int | None = None) -> str:
@@ -26,6 +27,10 @@ class BaseVLMClient(ABC):
     @abstractmethod
     def verify(self, image_path: str) -> VerifyResult:
         """VLM 对裁剪区域二次确认是否是 Waldo。"""
+
+    def select(self, image_paths: list[str]) -> SelectResult:
+        """多张候选裁剪图横向单选哪张是 Waldo（默认不支持，需 provider 覆盖）。"""
+        raise NotImplementedError(f"{type(self).__name__} does not support select()")
 
     @staticmethod
     def _parse_detect(text: str) -> DetectResult:
@@ -52,6 +57,28 @@ class BaseVLMClient(ABC):
         return VerifyResult(
             is_waldo=bool(is_waldo),
             confidence=float(confidence),
+            raw_response=text,
+        )
+
+    @staticmethod
+    def _parse_select(text: str) -> SelectResult:
+        data = _extract_json(text)
+        raw_choice = _first(data, "choice", "index", "selected", default=-1)
+        try:
+            choice = int(raw_choice)
+        except (TypeError, ValueError):
+            choice = -1
+        raw_conf = _first(data, "confidence", "score", "probability", default=0.0)
+        try:
+            confidence = float(raw_conf)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        per_image = _first(data, "per_image", "per_crop", default=[])
+        per_image = [bool(x) for x in per_image] if isinstance(per_image, list) else []
+        return SelectResult(
+            choice=choice,
+            confidence=confidence,
+            per_image=per_image,
             raw_response=text,
         )
 

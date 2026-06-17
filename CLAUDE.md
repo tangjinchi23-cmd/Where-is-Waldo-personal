@@ -190,7 +190,7 @@ get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
 | | `MAX_CONCURRENT` | 1 | 并发数（50 req/min 限制下保守串行） |
 | | `MAX_PATCHES_PER_ITER` | 80 | patch 硬上限，超出随机采样（256px 切片下通常远低于此） |
 | | `MAX_RETRIES` / `RETRY_BASE_WAIT` | 4 / 15s | 429 限流指数退避：15→30→60→120 |
-| `nodes/verify.py` | `TOP_K` | 3 | 送验证的候选数（仅多候选路径触发） |
+| `nodes/verify.py` | `VERIFY_MAX` | 12 | 送验证的候选数安全上限；验证全部 present 候选（不靠 Gemini confidence 排序），仅多候选路径触发 |
 | | `PADDING_RATIO` / `MIN_VERIFY_SIZE` | 0.3 / 120px | 裁剪 padding 与最小尺寸 |
 
 ---

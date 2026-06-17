@@ -10,7 +10,10 @@ from vision.segment import waldo_orig_bbox
 from llm.vlm_client import get_vlm_client
 
 # ── 可调参数 ───────────────────────────────────────────────────────────
-TOP_K = 3                   # 只对置信度前 K 个候选做二次验证
+# 验证全部 present 候选（detect 已按 has_waldo 过滤），不再只取「置信度前 K 个」：
+# Gemini 的 confidence 不可排序，靠 top-K 会在候选数 > K 时漏掉真 Waldo（实测 2.jpg）。
+# VERIFY_MAX 仅作安全上限，防极端误检爆量；正常图候选数远低于它。
+VERIFY_MAX = 12             # 送验证的候选数硬上限（安全阀，非排序依据）
 PADDING_RATIO = 0.3         # 向外扩展 bbox 的比例（相对 bbox 宽/高）
 MIN_VERIFY_SIZE = 120       # 发给 VLM 的 verify 图最小边长（像素）
 VLM_PROVIDER = "gpt4o"
@@ -19,12 +22,12 @@ VERIFY_DIR = "outputs/verify"
 
 def verify_node(state: WaldoState) -> dict:
     """
-    输入：original_image_path, candidates（已按 confidence 降序排列）
+    输入：original_image_path, candidates（detect 已按 present=has_waldo 过滤）
     输出：candidates（更新 verified / verify_confidence / orig_bbox / verify_crop_path）
           verified_result（取 is_waldo=True 中 verify_confidence 最高的 bbox）
 
     流程：
-    1. 取 top-K candidates，将 patch 内 bbox → 原图坐标
+    1. 对全部 present 候选（上限 VERIFY_MAX）将 patch 内 bbox → 原图坐标
     2. 向外扩展 bbox（加 padding），确保 VLM 有足够上下文
     3. 裁出原图区域发给 VLM 二次确认
     4. 收集所有通过验证的候选，取最高置信度作为 verified_result
@@ -40,7 +43,7 @@ def verify_node(state: WaldoState) -> dict:
     candidates = list(state["candidates"])
     passed: list[tuple[float, list[int]]] = []   # (verify_confidence, orig_bbox)
 
-    for i, cand in enumerate(candidates[:TOP_K]):
+    for i, cand in enumerate(candidates[:VERIFY_MAX]):
         # 1. patch 内 bbox → 原图坐标（无精确子 bbox 时退化为整块 patch）
         orig_bbox = waldo_orig_bbox(cand["patch_bbox"], cand.get("waldo_bbox_in_patch"))
 

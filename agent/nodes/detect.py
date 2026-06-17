@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from agent.state import WaldoState
 from vision.image_utils import crop_to_pil, save_patch
+from vision.segment import waldo_orig_bbox
 from llm.vlm_client import get_vlm_client, BaseVLMClient, DetectResult
 
 # ── 可调参数 ───────────────────────────────────────────────────────────
@@ -91,12 +92,16 @@ def detect_node(state: WaldoState) -> dict:
         if entry is None:
             continue
         cand, crop_path, result = entry
+        wbox = _validated_bbox(result.bbox, cand["patch_bbox"])
         updated.append({
             **cand,
             "crop_path": crop_path,
             "confidence": result.confidence,
             "has_waldo": result.has_waldo,
-            "waldo_bbox_in_patch": _validated_bbox(result.bbox, cand["patch_bbox"]),
+            "waldo_bbox_in_patch": wbox,
+            # 原图坐标：有精确子 bbox 则紧贴 Waldo，否则退化为整块 patch。
+            # 单候选路径跳过 verify，visualize 直接用此 orig_bbox 画框。
+            "orig_bbox": waldo_orig_bbox(cand["patch_bbox"], wbox),
         })
 
     before = len(updated)

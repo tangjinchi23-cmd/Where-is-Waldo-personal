@@ -58,6 +58,24 @@ def tile_region(
     return patches
 
 
+def waldo_orig_bbox(patch_bbox: list[int], waldo_bbox_in_patch: list[int] | None) -> list[int]:
+    """把 patch 内的 Waldo bbox 换算到原图坐标；无精确子 bbox 时退化为整块 patch。
+
+    Args:
+        patch_bbox: [px, py, pw, ph]，patch 在原图中的位置。
+        waldo_bbox_in_patch: [wx, wy, ww, wh]，Waldo 在 patch 内的局部坐标；
+            None 或空表示 detect 未给出精确位置。
+
+    Returns:
+        原图坐标 [x, y, w, h]：有子 bbox 则为 [px+wx, py+wy, ww, wh]，否则整块 patch_bbox。
+    """
+    if not waldo_bbox_in_patch:
+        return patch_bbox
+    px, py = patch_bbox[0], patch_bbox[1]
+    wx, wy, ww, wh = waldo_bbox_in_patch
+    return [px + wx, py + wy, ww, wh]
+
+
 @tool
 def get_image_size(image_path: str) -> list[int]:
     """获取图片的宽高（像素）。

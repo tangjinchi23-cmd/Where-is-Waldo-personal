@@ -14,10 +14,13 @@ DETECT_PROMPT = (
     "Use your own knowledge of what Waldo looks like. He is often small, partially hidden,\n"
     "or blurry — look carefully before deciding.\n\n"
     "Reply with ONLY this JSON, no markdown:\n"
-    '{"present": true/false, "confidence": 0.0-1.0}\n'
+    '{"present": true/false, "confidence": 0.0-1.0, "bbox": [x, y, w, h]}\n'
     "  - present: true if Waldo is in this patch\n"
     "  - confidence: probability Waldo IS in this patch (0.0 = not here, 1.0 = clearly\n"
     "    here); must agree with present.\n"
+    "  - bbox: a TIGHT box around Waldo in PIXELS within THIS patch image,\n"
+    "    [x, y, width, height] with (0,0) at the top-left corner. Use null if present\n"
+    "    is false.\n"
 )
 
 

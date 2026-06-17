@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from vision.segment import tile_region
+from vision.segment import tile_region, waldo_orig_bbox
 
 TILE = 256
 OVERLAP = 0.15
@@ -84,3 +84,20 @@ def test_region_exceeding_image_is_clamped_to_fixed_size():
         assert x + w <= 1000 and y + h <= 600  # 不出界
     xs = sorted({p["bbox"][0] for p in patches})
     assert xs[-1] == 1000 - TILE               # 末块贴图右边
+
+
+# ── waldo_orig_bbox：patch 内 bbox → 原图坐标 ──────────────────────────
+
+def test_waldo_orig_bbox_offsets_sub_bbox_by_patch_origin():
+    # patch 左上角 (100,200)，Waldo 在 patch 内 (10,20)，尺寸 30×40
+    assert waldo_orig_bbox([100, 200, 256, 256], [10, 20, 30, 40]) == [110, 220, 30, 40]
+
+
+def test_waldo_orig_bbox_falls_back_to_whole_patch_when_no_sub_bbox():
+    # 无 patch 内 bbox（None）→ 退化为整块 patch
+    assert waldo_orig_bbox([100, 200, 256, 256], None) == [100, 200, 256, 256]
+
+
+def test_waldo_orig_bbox_treats_empty_list_as_no_sub_bbox():
+    # 空列表（falsy）同样退化为整块 patch
+    assert waldo_orig_bbox([100, 200, 256, 256], []) == [100, 200, 256, 256]

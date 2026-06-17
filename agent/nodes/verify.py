@@ -6,6 +6,7 @@ from PIL import Image
 
 from agent.state import WaldoState
 from vision.image_utils import crop_to_pil, save_patch
+from vision.segment import waldo_orig_bbox
 from llm.vlm_client import get_vlm_client
 
 # ── 可调参数 ───────────────────────────────────────────────────────────
@@ -40,10 +41,8 @@ def verify_node(state: WaldoState) -> dict:
     passed: list[tuple[float, list[int]]] = []   # (verify_confidence, orig_bbox)
 
     for i, cand in enumerate(candidates[:TOP_K]):
-        # 1. patch 内 bbox → 原图坐标
-        orig_bbox = _patch_to_image_coords(cand)
-        if orig_bbox is None:
-            continue
+        # 1. patch 内 bbox → 原图坐标（无精确子 bbox 时退化为整块 patch）
+        orig_bbox = waldo_orig_bbox(cand["patch_bbox"], cand.get("waldo_bbox_in_patch"))
 
         # 2. 扩展 bbox，确保最小尺寸
         padded_bbox = _expand_bbox(orig_bbox, img_w, img_h, PADDING_RATIO, MIN_VERIFY_SIZE)
@@ -87,20 +86,6 @@ def verify_node(state: WaldoState) -> dict:
 
 
 # ── 内部工具 ───────────────────────────────────────────────────────────
-
-def _patch_to_image_coords(cand: dict) -> list[int] | None:
-    """将 patch 内的 waldo_bbox 转换为原图坐标；无精确 bbox 时退化为整个 patch。"""
-    patch_bbox: list[int] = cand["patch_bbox"]
-    waldo_bbox: list[int] | None = cand.get("waldo_bbox_in_patch")
-
-    if not waldo_bbox:
-        # detect 有 has_waldo=True 但没给出精确 bbox，用整个 patch 区域
-        return patch_bbox
-
-    px, py = patch_bbox[0], patch_bbox[1]
-    wx, wy, ww, wh = waldo_bbox
-    return [px + wx, py + wy, ww, wh]
-
 
 def _expand_bbox(
     bbox: list[int],

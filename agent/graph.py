@@ -50,16 +50,15 @@ def route_after_detect(state: WaldoState) -> str:
     return "verify" if len(state["candidates"]) > 1 else "visualize"
 
 
-def run_agent(image_path: str, grid_size: int = 1) -> WaldoState:
+def run_agent(image_path: str) -> WaldoState:
     """端到端运行 WaldoAgent，返回最终 State。
 
     Args:
         image_path: 待检测图片路径。
-        grid_size: 初始网格粒度（默认 1，即 analyze 的格子直接作为 patch）。
 
     Returns:
         最终 WaldoState，verified_result 字段为检测结果。
     """
     graph = build_graph()
-    state = initial_state(image_path, grid_size=grid_size)
+    state = initial_state(image_path)
     return graph.invoke(state)

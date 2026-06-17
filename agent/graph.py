@@ -1,6 +1,6 @@
 """LangGraph 图组装：定义节点、边，编译为可执行图。
 
-当前为线性流水线：analyze → segment → detect → verify → visualize → END。
+当前为线性流水线：segment → detect → verify → visualize → END。
 evaluate / calibrate 迭代回路已移除；如遇复杂案例需要二次细化，可在此重新接入。
 """
 
@@ -8,7 +8,6 @@ from langgraph.graph import StateGraph, END
 
 from agent.state import WaldoState, initial_state
 from agent.nodes import (
-    analyze_node,
     segment_node,
     detect_node,
     verify_node,
@@ -21,15 +20,13 @@ def build_graph() -> StateGraph:
     g = StateGraph(WaldoState)
 
     # ── 注册节点 ──────────────────────────────────────
-    g.add_node("analyze",   analyze_node)
     g.add_node("segment",   segment_node)
     g.add_node("detect",    detect_node)
     g.add_node("verify",    verify_node)
     g.add_node("visualize", visualize_node)
 
     # ── 边 ────────────────────────────────────────────
-    g.set_entry_point("analyze")
-    g.add_edge("analyze",   "segment")
+    g.set_entry_point("segment")
     g.add_edge("segment",   "detect")
     # detect 后条件路由：单候选（或空）直接 visualize，跳过多余的 verify；
     # 多候选（少数会冒 false positive 的图）才走 verify 去伪存真。

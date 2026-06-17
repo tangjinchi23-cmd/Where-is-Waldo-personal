@@ -3,7 +3,6 @@
 与 provider 无关、与编排无关，单独抽出便于统一调试与迭代：
     - DETECT_PROMPT          detect 阶段：判断 patch 是否含 Waldo
     - VERIFY_PROMPT          verify 阶段：对候选区域二次确认
-    - build_analyze_prompt   analyze 阶段：根据图片尺寸动态生成网格推荐提示词
 """
 
 from __future__ import annotations
@@ -39,25 +38,3 @@ VERIFY_PROMPT = (
     "  - confidence: 0.0 = definitely not Waldo, 1.0 = absolutely certain it is Waldo\n"
     "  - reason: brief evidence (e.g. 'red-white stripes clearly visible on shirt')"
 )
-
-
-# ---------- analyze 阶段 ----------
-
-def build_analyze_prompt(img_w: int, img_h: int) -> str:
-    """根据图片尺寸生成网格推荐提示词（analyze 节点用）。
-
-    VLM 根据图片复杂度推荐切割行列数，目标每格约 200×200px。
-    """
-    target = 200
-    suggest_cols = max(2, round(img_w / target))
-    suggest_rows = max(2, round(img_h / target))
-    return (
-        f"This is a Where's Waldo puzzle image ({img_w}×{img_h} pixels).\n"
-        f"Waldo is a small figure (~30-50px tall) hidden in a dense crowd.\n\n"
-        f"Recommend how many rows and columns to split this image into for a grid search.\n"
-        f"Each cell should be roughly 200×200 pixels so Waldo is large enough to identify.\n\n"
-        f"Suggested starting point: {suggest_rows} rows × {suggest_cols} cols.\n"
-        f"Adjust higher if the image is very dense or complex; lower if sparse.\n\n"
-        "Reply ONLY with JSON, no markdown:\n"
-        '{"rows": N, "cols": M}'
-    )

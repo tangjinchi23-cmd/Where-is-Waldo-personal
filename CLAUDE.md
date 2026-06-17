@@ -42,9 +42,9 @@
 
 ## 技术栈
 
-- **Agent 框架**：LangGraph（`StateGraph`，有状态的迭代循环 + 条件路由；保留以备未来并行 detect 分支）
-- **多模态模型（VLM）**：`gpt-5.5`（全部节点）；统一接口支持热插拔（可切 Claude / Gemini / Qwen）
-- **图像处理**：Pillow
+- **Agent 框架**：LangGraph（`StateGraph` + 条件路由：detect 后单候选跳过 verify）
+- **多模态模型（VLM）**：`gemini-3.5-flash`（detect + verify 主力）；统一接口支持热插拔（可切回 gpt-5.5 / Claude / Qwen）
+- **图像处理**：Pillow（切片 + 裁剪，无 VLM）
 - **并发**：`concurrent.futures.ThreadPoolExecutor`（detect 节点，当前 `MAX_CONCURRENT=1`）
 
 ### 依赖（requirements.txt）
@@ -60,9 +60,9 @@ pillow>=10.0.0
 
 ### 环境变量（.env）
 
-- `OPENAI_API_KEY` —— `gpt-5.5` 调用所需（全部节点）
+- `GOOGLE_API_KEY` —— `gemini-3.5-flash` 调用所需（detect + verify，主力）；`google.generativeai` 自动从环境读取
+- `OPENAI_API_KEY` —— 切换回 gpt-5.5 时所需
 - `ANTHROPIC_API_KEY` —— 切换回 Claude 时所需
-- 切换 Gemini 时需额外配置 `GOOGLE_API_KEY`
 
 `main.py` 启动时通过 `dotenv.load_dotenv()` 加载（缺失则跳过）。
 
@@ -263,10 +263,12 @@ WhereisWaldoAgent/
 
 ## 待确认 / 优化方向
 
-- [ ] **量化评测**：对 `original-images/` 建立 ground truth 标注 + IoU 命中率脚本，每次改动可量化验证效果
-- [ ] **并发上限**：当前 `MAX_CONCURRENT=1` 受 50 req/min 限制；系统稳定后可考虑提额 + 并行 detect 分支（LangGraph 已预留接口）
-- [ ] **置信度阈值调参**：`DETECT_CONFIDENCE_THRESHOLD=0.15`、`VERIFY_CONFIDENCE_THRESHOLD=0.85` 需用实测数据调优
-- [ ] **verify 精修 bbox**：目前 verify 只做 true/false 判断，可让 VLM 同时回传精确 bbox 坐标
+- [ ] **量化评测（头号优先）**：对 `original-images/` 建立 ground truth 标注 + IoU 命中率脚本。当前所有改动只能靠单图肉眼定性验证（密集难图常说不清谁是真 Waldo），这是检验 detect 召回 / verify 横向单选准确率 / bbox 精度的唯一可靠手段。
+- [ ] **网络鲁棒性**：Gemini 调用偶发 504/503 超时（实测 2.jpg 跑挂 3 个 patch）；detect 已有 429 退避，但对 503/504/连接错误也应纳入重试。
+- [ ] **TILE_SIZE 调参**：默认 256（覆盖小 Waldo 难图）；建立量化评测后正式比较 256 vs 384 的召回/速度权衡。
+- [ ] **并发上限**：当前 `MAX_CONCURRENT=1`；稳定后可考虑提额 + 并行 detect 分支（LangGraph 已预留接口）。
+- [x] **bbox 精修（已完成）**：detect 让 Gemini 在 patch 内回精确 bbox（`waldo_orig_bbox` 映射回原图），verify/单候选路径都能画紧框，无 bbox 时退化整块 patch。
+- [x] **verify 抗误检（已完成）**：从 gpt-5.5 逐张判断改为 gemini-3.5-flash 横向单选，摆脱对不可靠 confidence 排序的依赖。
 
 <!-- superpowers-zh:begin (do not edit between these markers) -->
 # Superpowers-ZH 中文增强版

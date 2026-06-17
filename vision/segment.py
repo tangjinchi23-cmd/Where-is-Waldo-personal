@@ -3,6 +3,58 @@ from PIL import Image
 from langchain_core.tools import tool
 
 
+def _axis_starts(start: int, length: int, tile: int, stride: int) -> list[int]:
+    """一根轴上的切片起点：滑窗 + 末块贴边对齐。
+
+    起点 start, start+stride, ... 保留所有 < (start+length-tile) 者，
+    再补一个贴边起点 start+length-tile，保证覆盖到边、每块恰好 tile。
+    length <= tile 时退化为单块。
+    """
+    if length <= tile:
+        return [start]
+    last = start + length - tile
+    starts: list[int] = []
+    x = start
+    while x < last:
+        starts.append(x)
+        x += stride
+    starts.append(last)
+    return starts
+
+
+def tile_region(
+    region: list[int],
+    tile_size: int,
+    image_size: tuple[int, int],
+    overlap: float = 0.15,
+) -> list[dict]:
+    """把一个区域切成 tile_size×tile_size 的固定尺寸滑窗 patch（末块贴边对齐）。
+
+    Args:
+        region: [x, y, w, h]，原图坐标的目标区域。
+        tile_size: 每块边长（像素）。
+        image_size: (img_width, img_height)，用于边界 clamp。
+        overlap: 相邻 patch 重叠比例；stride = round(tile_size*(1-overlap))。
+
+    Returns:
+        patch 字典列表，每项 {"bbox": [x, y, w, h], "row": int, "col": int}。
+        区域 > tile 时每块宽高恰为 tile_size；区域 <= tile 时单块取整边。
+    """
+    rx, ry, rw, rh = region
+    img_w, img_h = image_size
+    stride = max(1, round(tile_size * (1 - overlap)))
+    xs = _axis_starts(rx, rw, tile_size, stride)
+    ys = _axis_starts(ry, rh, tile_size, stride)
+
+    patches: list[dict] = []
+    for row, y in enumerate(ys):
+        for col, x in enumerate(xs):
+            x2 = min(img_w, x + tile_size, rx + rw)
+            y2 = min(img_h, y + tile_size, ry + rh)
+            patches.append({"bbox": [x, y, x2 - x, y2 - y], "row": row, "col": col})
+    return patches
+
+
 def segment_region(
     region: list[int],
     grid_size: int,

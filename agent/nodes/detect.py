@@ -12,7 +12,7 @@ from llm.vlm_client import get_vlm_client, BaseVLMClient, DetectResult
 
 # ── 可调参数 ───────────────────────────────────────────────────────────
 DETECT_CONFIDENCE_THRESHOLD = 0.15  # 保留备用：Gemini confidence 失效，当前不再用于过滤
-MAX_CONCURRENT = 1                   # 串行调用：50 req/min 限制下最安全
+MAX_CONCURRENT = 4                   # 50 req/min 限制下提速：4 并发兼顾吞吐与避让，偶发 429 有指数退避兜底
 MAX_PATCHES_PER_ITER = 80            # 每轮 patch 硬性上限，超出则随机截断
 MIN_DETECT_PATCH_PX = 150            # 低于此尺寸的 patch 跳过（VLM 无法可靠识别）
 # detect 用 Gemini：2026-06-15 全量复验（docs/工作日志.md）证明 gemini-3.5-flash 在

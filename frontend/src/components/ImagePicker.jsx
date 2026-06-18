@@ -1,34 +1,35 @@
-import { useState } from "react";
+import { Select, Upload, Button } from "antd";
+import { UploadOutlined } from "@ant-design/icons";
 
 export default function ImagePicker({ cases, selected, onSelect, onUpload, disabled }) {
-  const [busy, setBusy] = useState(false);
-
-  async function handleFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setBusy(true);
-    try {
-      await onUpload(file);
-    } finally {
-      setBusy(false);
-      e.target.value = "";
-    }
-  }
-
   return (
-    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-      <select value={selected || ""} onChange={(e) => onSelect(e.target.value)} disabled={disabled}>
-        <option value="" disabled>选择图片…</option>
-        {cases.map((c) => (
-          <option key={c.name} value={c.name}>
-            {c.name} {c.has_result ? "✅" : ""}
-          </option>
-        ))}
-      </select>
-      <label style={{ cursor: "pointer", color: "#2a6" }}>
-        {busy ? "上传中…" : "上传新图"}
-        <input type="file" accept="image/*" onChange={handleFile} disabled={disabled || busy} style={{ display: "none" }} />
-      </label>
-    </div>
+    <>
+      <Select
+        style={{ width: 220 }}
+        placeholder="选择图片…"
+        value={selected || undefined}
+        onChange={onSelect}
+        disabled={disabled}
+        showSearch
+        optionFilterProp="label"
+        options={cases.map((c) => ({
+          value: c.name,
+          label: `${c.name}${c.has_result ? "  ✅" : ""}`,
+        }))}
+      />
+      <Upload
+        accept="image/*"
+        showUploadList={false}
+        disabled={disabled}
+        beforeUpload={(file) => {
+          onUpload(file);
+          return false; // 阻止 antd 默认上传，由 onUpload 自行处理
+        }}
+      >
+        <Button icon={<UploadOutlined />} disabled={disabled}>
+          上传新图
+        </Button>
+      </Upload>
+    </>
   );
 }

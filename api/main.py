@@ -6,6 +6,13 @@
 import json
 from pathlib import Path
 
+# 优先从 .env 加载环境变量（GOOGLE_API_KEY 等）；缺失则跳过
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse

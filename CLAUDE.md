@@ -20,6 +20,39 @@
 
 ---
 
+## 服务化与前端（2026-06-18）
+
+把 `main.py` 的一次性测试流程服务化，并配 React + FastAPI 前端。三层单向依赖，agent 层不动：
+
+```
+[React SPA (antd)] ──/api,/static (SSE)──> [FastAPI: api/main.py] ──> [service/waldo_service.py] ──> run_agent(graph.stream)
+```
+
+- **service 层（`service/waldo_service.py`）**：纯 Python，无 HTTP。
+  - `list_cases / get_case`：扫 `original-images/` 与 `outputs/` 配对已有结果。
+  - `resolve_image(name)`：`original-images/` 优先、`uploads/` 兜底解析图片路径。
+  - `run_detection(image_path)`：把 `graph.stream()` 的逐节点增量翻译成标准事件流 `segment → detect → verify → done`，异常转 `error` 事件；`done` 复刻 main 三态判断（verified / detect-only / not-found）。
+- **api 层（`api/main.py`，FastAPI）**：`GET /api/cases`、`POST /api/upload`（存 `uploads/`）、`GET /api/detect?name=`（**SSE** 长连接，逐节点推事件）、`/static/*` 挂载三目录。**启动即 `load_dotenv()`**——否则 server 进程读不到 `GOOGLE_API_KEY`，detect 全 patch 失败、静默退化成「未找到」（2026-06-18 实际踩过此坑）。
+- **前端（`frontend/`，React + Vite + Ant Design v6）**：选图/上传 → 运行检测 → `Steps` 逐节点亮灯 + 候选画廊（`Image.PreviewGroup`）+ 结果红框图。逻辑核心 `src/pipeline.js`（纯函数事件归约器，有 vitest 单测）；`src/api.js` 封装 fetch + `EventSource`。
+- **批量测试**：`scripts/batch_test_all.py` 跑全量原图、复刻三态判断、**断点续跑**，结果落 `outputs/batch_all_results.json`。
+
+### 运行
+
+```bash
+uvicorn api.main:app --reload --port 8000             # 后端
+cd frontend && npm install && npm run dev             # 前端（:5173，代理 /api /static → :8000）
+pytest tests/test_waldo_service.py tests/test_api.py  # 后端测试
+cd frontend && npm test                               # 前端 pipeline 单测
+```
+
+### 成本 / 配额（2026-06-18 实测）
+
+- `gemini-3.5-flash` 定价：**输入 $1.50 / 输出 $9.00 每百万 token**；单张图 pipeline（~60 detect + 1 verify）≈ **$0.09**，全量 20 张 ≈ $2。优化阶段付费充 ~$10 足够。
+- **免费层对本场景不可用**：`gemini-3.5-flash` 免费层 `GenerateRequestsPerDayPerProjectPerModel-FreeTier` = **20 次/天**，连一张图（~60 次调用）都跑不完。
+- 设计文档 / 实现计划见 `docs/superpowers/specs/2026-06-18-*` 与 `docs/superpowers/plans/2026-06-18-*`。
+
+---
+
 ## Detect Prompt Engineering 准则（2026-06-11 实测，后续调 prompt 必读）
 
 > 完整实验记录见 `docs/detect_eval_2026-06-11.md`；量化工具见 `tests/quick_detect_check.py`（召回）/ `tests/quick_falsepos_check.py`（误检）/ 根目录 `config.json`（可调 provider/model/temperature/max_tokens/repeats/limit）。
@@ -189,7 +222,7 @@ get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
 | `nodes/detect.py` | `DETECT_CONFIDENCE_THRESHOLD` | 0.15 | 保留备用；Gemini confidence 失效，当前按 present 过滤不再用它 |
 | | `DETECT_MAX_TOKENS` | 4096 | detect 客户端 token 上限（Gemini 非推理不需要这么高，保留无害） |
 | | `MIN_DETECT_PATCH_PX` | 150 | detect 跳过过小 patch 的下限 |
-| | `MAX_CONCURRENT` | 1 | 并发数（50 req/min 限制下保守串行） |
+| | `MAX_CONCURRENT` | 4 | 并发数（50 req/min 付费层下提速；免费层 20/天会立刻打满，须降回 1 或换付费） |
 | | `MAX_PATCHES_PER_ITER` | 80 | patch 硬上限，超出随机采样（256px 切片下通常远低于此） |
 | | `MAX_RETRIES` / `RETRY_BASE_WAIT` | 4 / 15s | 429 限流指数退避：15→30→60→120 |
 | `nodes/verify.py` | `VERIFY_MAX` | 12 | 送横向单选的候选数安全上限；全部 present 候选一次性比较，仅多候选路径触发 |
@@ -265,6 +298,8 @@ WhereisWaldoAgent/
 
 - [ ] **量化评测（头号优先）**：对 `original-images/` 建立 ground truth 标注 + IoU 命中率脚本。当前所有改动只能靠单图肉眼定性验证（密集难图常说不清谁是真 Waldo），这是检验 detect 召回 / verify 横向单选准确率 / bbox 精度的唯一可靠手段。
 - [ ] **网络鲁棒性**：Gemini 调用偶发 504/503 超时（实测 2.jpg 跑挂 3 个 patch）；detect 已有 429 退避，但对 503/504/连接错误也应纳入重试。
+- [ ] **计费类 429 快速失败**：detect 的重试把**所有** 429 当限流退避（15→30→60→120s），但「额度耗尽 / `credits are depleted` / free-tier 日配额超限」的 429 重试无用，导致每张图空转 ~27 分钟、并把结果污染成假阴性（2026-06-18 image 4 实测）。应识别计费类 429 **直接抛出不重试**，作为 `error` 事件冒到前端。
+- [ ] **SSE 长连接心跳**：detect 节点跑数分钟期间 SSE 全程静默，长连接易被 Vite 代理 / 浏览器按空闲超时掐断 → 前端「连接中断」。可加周期性心跳事件。
 - [ ] **TILE_SIZE 调参**：默认 256（覆盖小 Waldo 难图）；建立量化评测后正式比较 256 vs 384 的召回/速度权衡。
 - [ ] **并发上限**：当前 `MAX_CONCURRENT=1`；稳定后可考虑提额 + 并行 detect 分支（LangGraph 已预留接口）。
 - [x] **bbox 精修（已完成）**：detect 让 Gemini 在 patch 内回精确 bbox（`waldo_orig_bbox` 映射回原图），verify/单候选路径都能画紧框，无 bbox 时退化整块 patch。

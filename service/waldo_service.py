@@ -9,11 +9,17 @@ REST 接口，而无需改动前端契约。
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
+
+# 模块级导入，便于测试 monkeypatch（agent 层无回环依赖 service）
+from agent.graph import build_graph
+from agent.state import initial_state
 
 # 相对本文件解析项目根：service/ 的上一级即项目根
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 IMAGES_DIR = PROJECT_ROOT / "original-images"
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+UPLOADS_DIR = PROJECT_ROOT / "uploads"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
 
@@ -75,3 +81,83 @@ def get_case(
         if case.name == name:
             return case
     return None
+
+
+def resolve_image(
+    name: str,
+    images_dir: Path = IMAGES_DIR,
+    uploads_dir: Path = UPLOADS_DIR,
+) -> Path | None:
+    """按去后缀文件名解析图片路径：original-images 优先，uploads 兜底；都没有返回 None。"""
+    for d in (images_dir, uploads_dir):
+        for ext in IMAGE_EXTS:
+            p = d / f"{name}{ext}"
+            if p.is_file():
+                return p
+    return None
+
+
+def _cand_brief(c: dict) -> dict:
+    """把候选裁成前端需要的精简形状。"""
+    return {
+        "crop_path": c.get("verify_crop_path") or c.get("crop_path"),
+        "confidence": c.get("confidence"),
+        "has_waldo": c.get("has_waldo"),
+        "verified": c.get("verified", False),
+        "verify_looks_waldo": c.get("verify_looks_waldo"),
+        "orig_bbox": c.get("orig_bbox") or c.get("patch_bbox"),
+    }
+
+
+def _build_done(image_path: str, candidates: list, verify_ran: bool, verified_result) -> dict:
+    """复刻 main.py 三态判断，组装 done 事件。"""
+    name = Path(image_path).stem
+    result_file = OUTPUTS_DIR / f"{name}_result.jpg"
+    result_path = str(result_file) if result_file.is_file() else None
+
+    if verified_result:
+        return {"stage": "done", "found": True, "verify_ran": True,
+                "bbox": verified_result, "result_path": result_path}
+    if candidates and not verify_ran:
+        best = candidates[0]
+        bbox = best.get("orig_bbox") or best.get("patch_bbox")
+        return {"stage": "done", "found": True, "verify_ran": False,
+                "bbox": bbox, "result_path": result_path}
+    return {"stage": "done", "found": False, "verify_ran": verify_ran,
+            "bbox": None, "result_path": result_path}
+
+
+def run_detection(image_path: str) -> Iterator[dict]:
+    """把 graph.stream 的逐节点增量翻译成标准化事件流。
+
+    事件 stage ∈ {segment, detect, verify, done, error}；详见设计文档。
+    所有 *_path 为相对项目根的真实路径，由 API 层转 URL。
+    """
+    graph = build_graph()
+    state = initial_state(image_path)
+    candidates: list = []
+    verify_ran = False
+    verified_result = None
+    try:
+        for update in graph.stream(state):
+            for node, delta in update.items():
+                if node == "segment":
+                    yield {"stage": "segment", "patches": len(delta.get("candidates", []))}
+                elif node == "detect":
+                    candidates = delta.get("candidates", [])
+                    yield {"stage": "detect", "count": len(candidates),
+                           "candidates": [_cand_brief(c) for c in candidates]}
+                elif node == "verify":
+                    verify_ran = True
+                    candidates = delta.get("candidates", candidates)
+                    verified_result = delta.get("verified_result")
+                    choice = next((i for i, c in enumerate(candidates) if c.get("verified")), -1)
+                    yield {"stage": "verify", "ran": True, "choice": choice,
+                           "per_image": [c.get("verify_looks_waldo") for c in candidates],
+                           "candidates": [_cand_brief(c) for c in candidates]}
+                # visualize 节点返回 {}，无需事件
+        if not verify_ran:
+            yield {"stage": "verify", "ran": False}
+        yield _build_done(image_path, candidates, verify_ran, verified_result)
+    except Exception as exc:  # 缺 key / 503 / 超时等统一转 error 事件
+        yield {"stage": "error", "message": str(exc)}

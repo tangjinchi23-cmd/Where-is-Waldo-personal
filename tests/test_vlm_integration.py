@@ -4,7 +4,6 @@ Each test class is gated on its own fixture (skipped when API key absent).
 These tests validate:
   - call() returns non-empty text
   - detect() returns a well-formed DetectResult
-  - verify() returns a well-formed VerifyResult
   - Confidence values are in [0, 1]
   - bbox (if present) has exactly 4 non-negative integers
 
@@ -16,7 +15,7 @@ Run all integration tests (requires all keys):
 """
 
 import pytest
-from llm.vlm_client import DetectResult, VerifyResult
+from llm.vlm_client import DetectResult
 
 
 # ================================================================
@@ -30,13 +29,6 @@ def assert_detect_result(result: DetectResult):
     if result.bbox is not None:
         assert len(result.bbox) == 4
         assert all(isinstance(v, (int, float)) and v >= 0 for v in result.bbox)
-    assert isinstance(result.raw_response, str) and len(result.raw_response) > 0
-
-
-def assert_verify_result(result: VerifyResult):
-    assert isinstance(result, VerifyResult)
-    assert isinstance(result.is_waldo, bool)
-    assert 0.0 <= result.confidence <= 1.0
     assert isinstance(result.raw_response, str) and len(result.raw_response) > 0
 
 
@@ -55,10 +47,6 @@ class TestClaudeIntegration:
     def test_detect_result_type(self, claude_client, test_image):
         result = claude_client.detect(test_image)
         assert_detect_result(result)
-
-    def test_verify_result_type(self, claude_client, test_image):
-        result = claude_client.verify(test_image)
-        assert_verify_result(result)
 
     def test_detect_confidence_range(self, claude_client, test_image):
         result = claude_client.detect(test_image)
@@ -86,10 +74,6 @@ class TestGPT4oIntegration:
         result = gpt4o_client.detect(test_image)
         assert_detect_result(result)
 
-    def test_verify_result_type(self, gpt4o_client, test_image):
-        result = gpt4o_client.verify(test_image)
-        assert_verify_result(result)
-
     def test_detect_confidence_range(self, gpt4o_client, test_image):
         result = gpt4o_client.detect(test_image)
         assert 0.0 <= result.confidence <= 1.0
@@ -111,10 +95,6 @@ class TestGeminiIntegration:
         result = gemini_client.detect(test_image)
         assert_detect_result(result)
 
-    def test_verify_result_type(self, gemini_client, test_image):
-        result = gemini_client.verify(test_image)
-        assert_verify_result(result)
-
     def test_detect_confidence_range(self, gemini_client, test_image):
         result = gemini_client.detect(test_image)
         assert 0.0 <= result.confidence <= 1.0
@@ -135,10 +115,6 @@ class TestQwenIntegration:
     def test_detect_result_type(self, qwen_client, test_image):
         result = qwen_client.detect(test_image)
         assert_detect_result(result)
-
-    def test_verify_result_type(self, qwen_client, test_image):
-        result = qwen_client.verify(test_image)
-        assert_verify_result(result)
 
     def test_detect_confidence_range(self, qwen_client, test_image):
         result = qwen_client.detect(test_image)

@@ -15,7 +15,7 @@ def visualize_node(state: WaldoState) -> dict:
 
     策略：
     - 优先使用 verified_result
-    - 若为 None（超迭代上限退出），取 candidates 中置信度最高的 bbox
+    - 若为 None（verify 全否决 / 跳过 verify 的单候选），取最佳候选的 bbox
     """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 

@@ -1,5 +1,4 @@
-langgraph>=0.2.0
-langchain-core>=0.2.0
+langchain-core>=0.2.0   # 仅 tools/ 的 @tool 装饰器与 vision/segment.py::get_image_size 用
 anthropic>=0.30.0
 pillow>=10.0.0
 fastapi>=0.110.0

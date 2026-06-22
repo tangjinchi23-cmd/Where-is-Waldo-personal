@@ -1,3 +1,3 @@
-from agent.graph import build_graph, run_agent
+from agent.pipeline import run_pipeline, stream_pipeline
 
-__all__ = ["build_graph", "run_agent"]
+__all__ = ["run_pipeline", "stream_pipeline"]

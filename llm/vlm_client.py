@@ -10,7 +10,7 @@
     llm/providers/qwen_client.py
 """
 
-from llm.results import DetectResult, VerifyResult, SelectResult
+from llm.results import DetectResult, SelectResult
 from llm.base import BaseVLMClient, _extract_json
 from llm.factory import get_vlm_client, Provider
 from llm.providers.claude_client import ClaudeVLMClient
@@ -20,7 +20,6 @@ from llm.providers.qwen_client import QwenVLMClient
 
 __all__ = [
     "DetectResult",
-    "VerifyResult",
     "SelectResult",
     "BaseVLMClient",
     "get_vlm_client",

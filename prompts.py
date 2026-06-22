@@ -2,7 +2,7 @@
 
 与 provider 无关、与编排无关，单独抽出便于统一调试与迭代：
     - DETECT_PROMPT          detect 阶段：判断 patch 是否含 Waldo
-    - VERIFY_PROMPT          verify 阶段：对候选区域二次确认
+    - SELECT_PROMPT          verify 阶段：在多张候选裁剪图间横向单选唯一真 Waldo
 """
 
 from __future__ import annotations
@@ -39,23 +39,4 @@ SELECT_PROMPT = (
     '"confidence": 0.0-1.0, "per_image": [true/false, ...]}\n'
     "  - choice: 0-based index of the crop that is the real Waldo (-1 if none)\n"
     "  - per_image: for each crop in the given order, true if that crop looks like Waldo\n"
-)
-
-
-# ---------- verify 阶段（逐张确认，保留备用） ----------
-
-VERIFY_PROMPT = (
-    "You are performing a final verification step in a Where's Waldo search.\n"
-    "This is a close-up crop centered on a suspected Waldo location.\n\n"
-    "Waldo's distinguishing features:\n"
-    "  - Red and white HORIZONTAL striped shirt (most reliable identifier)\n"
-    "  - Round wire-frame glasses\n"
-    "  - Red and white bobble hat (may be partially cropped)\n"
-    "  - Slim build, often partially occluded by other characters\n\n"
-    "Is the person shown definitely Waldo?\n\n"
-    "Respond ONLY with a JSON object, no markdown, no extra text:\n"
-    '{"is_waldo": true/false, "confidence": 0.0-1.0, "reason": "one short sentence"}\n\n'
-    "  - is_waldo: true only if you clearly see the red-white horizontal stripes\n"
-    "  - confidence: 0.0 = definitely not Waldo, 1.0 = absolutely certain it is Waldo\n"
-    "  - reason: brief evidence (e.g. 'red-white stripes clearly visible on shirt')"
 )

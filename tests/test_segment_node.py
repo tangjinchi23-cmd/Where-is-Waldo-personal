@@ -1,4 +1,4 @@
-"""segment_node：在真图上把 focus_regions 切成有效 candidates。"""
+"""segment_node：在真图上把整图切成有效 candidates。"""
 
 import os
 import sys
@@ -15,13 +15,10 @@ _TEST_IMAGE = os.path.join(
 
 
 def _state():
-    w, h = Image.open(_TEST_IMAGE).size
     return {
         "original_image_path": _TEST_IMAGE,
-        "focus_regions": [[0, 0, w, h]],
         "candidates": [],
         "verified_result": None,
-        "iteration": 0,
     }
 
 

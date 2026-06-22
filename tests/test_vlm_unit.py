@@ -2,9 +2,9 @@
 
 Covers:
   - _extract_json: all edge cases for VLM response parsing
-  - _parse_detect / _parse_verify: field extraction and defaults
+  - _parse_detect / _parse_select: field extraction and defaults
   - get_vlm_client: factory routing and error on unknown provider
-  - DetectResult / VerifyResult: dataclass defaults
+  - DetectResult / SelectResult: dataclass defaults
   - BaseVLMClient: abstract method enforcement
 """
 
@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from llm.vlm_client import (
     DetectResult,
-    VerifyResult,
     SelectResult,
     BaseVLMClient,
     ClaudeVLMClient,
@@ -145,34 +144,6 @@ class TestParseDetect:
 
 
 # ================================================================
-# BaseVLMClient._parse_verify
-# ================================================================
-
-class TestParseVerify:
-    def test_is_waldo_true(self):
-        text = '{"is_waldo": true, "confidence": 0.97, "reason": "red-white stripes visible"}'
-        result = BaseVLMClient._parse_verify(text)
-        assert isinstance(result, VerifyResult)
-        assert result.is_waldo is True
-        assert result.confidence == pytest.approx(0.97)
-
-    def test_is_waldo_false(self):
-        text = '{"is_waldo": false, "confidence": 0.02}'
-        result = BaseVLMClient._parse_verify(text)
-        assert result.is_waldo is False
-
-    def test_missing_fields_use_defaults(self):
-        result = BaseVLMClient._parse_verify("{}")
-        assert result.is_waldo is False
-        assert result.confidence == 0.0
-
-    def test_raw_response_preserved(self):
-        text = '{"is_waldo": false, "confidence": 0.1}'
-        result = BaseVLMClient._parse_verify(text)
-        assert result.raw_response == text
-
-
-# ================================================================
 # BaseVLMClient._parse_select（横向单选）
 # ================================================================
 
@@ -230,8 +201,6 @@ class TestSelectCapability:
                 return ""
             def detect(self, image_path):
                 return None
-            def verify(self, image_path):
-                return None
 
         with pytest.raises(NotImplementedError):
             Dummy().select(["a.jpg", "b.jpg"])
@@ -250,7 +219,7 @@ class TestSelectResultDataclass:
 
 
 # ================================================================
-# DetectResult / VerifyResult dataclass defaults
+# DetectResult dataclass defaults
 # ================================================================
 
 class TestDataclasses:
@@ -262,10 +231,6 @@ class TestDataclasses:
     def test_detect_result_with_bbox(self):
         r = DetectResult(has_waldo=True, confidence=0.9, bbox=[1, 2, 3, 4])
         assert r.bbox == [1, 2, 3, 4]
-
-    def test_verify_result_defaults(self):
-        r = VerifyResult(is_waldo=False, confidence=0.0)
-        assert r.raw_response == ""
 
 
 # ================================================================
@@ -312,7 +277,7 @@ class TestAbstractEnforcement:
         class Partial(BaseVLMClient):
             def call(self, image_path, prompt, max_tokens=None):
                 return ""
-            # missing detect and verify
+            # missing detect
 
         with pytest.raises(TypeError):
             Partial()

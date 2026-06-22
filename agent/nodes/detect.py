@@ -11,8 +11,7 @@ from vision.segment import waldo_orig_bbox
 from llm.vlm_client import get_vlm_client, BaseVLMClient, DetectResult
 
 # ── 可调参数 ───────────────────────────────────────────────────────────
-DETECT_CONFIDENCE_THRESHOLD = 0.15  # 保留备用：Gemini confidence 失效，当前不再用于过滤
-MAX_CONCURRENT = 4                   # 50 req/min 限制下提速：4 并发兼顾吞吐与避让，偶发 429 有指数退避兜底
+MAX_CONCURRENT = 10                  # 付费 Tier 1（~300 RPM）下提速：偶发 429 有指数退避兜底
 MAX_PATCHES_PER_ITER = 80            # 每轮 patch 硬性上限，超出则随机截断
 MIN_DETECT_PATCH_PX = 150            # 低于此尺寸的 patch 跳过（VLM 无法可靠识别）
 # detect 用 Gemini：2026-06-15 全量复验（docs/工作日志.md）证明 gemini-3.5-flash 在
@@ -44,7 +43,6 @@ def detect_node(state: WaldoState) -> dict:
     """
     vlm = get_vlm_client(VLM_PROVIDER, model=VLM_MODEL, max_tokens=DETECT_MAX_TOKENS)
     image_path = state["original_image_path"]
-    iteration = state["iteration"]
     os.makedirs(PATCH_DIR, exist_ok=True)
 
     # 1. 裁剪并保存所有 patch（超出上限时随机采样，避免系统性漏检右下角）
@@ -60,14 +58,14 @@ def detect_node(state: WaldoState) -> dict:
         if pw < MIN_DETECT_PATCH_PX or ph < MIN_DETECT_PATCH_PX:
             skipped += 1
             continue
-        crop_path = os.path.join(PATCH_DIR, f"iter{iteration}_patch{i}.jpg")
+        crop_path = os.path.join(PATCH_DIR, f"patch{i}.jpg")
         patch_img = crop_to_pil(image_path, cand["patch_bbox"])
         save_patch(patch_img, crop_path)
         tasks.append((i, cand, crop_path))
     if skipped:
         print(f"[detect] Skipped {skipped} patches smaller than {MIN_DETECT_PATCH_PX}px")
 
-    print(f"[detect] iter={iteration}, patches={len(tasks)}, workers={MAX_CONCURRENT}")
+    print(f"[detect] patches={len(tasks)}, workers={MAX_CONCURRENT}")
 
     # 2. 并发调用 VLM
     results: list[tuple[dict, str, DetectResult] | None] = [None] * len(tasks)
@@ -105,10 +103,9 @@ def detect_node(state: WaldoState) -> dict:
         })
 
     before = len(updated)
-    # Gemini confidence 失效，按 present(has_waldo) 二元信号过滤；保留 confidence 降序
-    # 仅为多候选时给 verify 一个稳定顺序，不代表判别力。
+    # Gemini confidence 失效（与 present 矛盾率 77%），只按 present(has_waldo) 二元信号过滤。
+    # 不按 confidence 排序——那是假精度；保持行优先 patch 顺序，可解释且对 verify 无影响。
     updated = [c for c in updated if c["has_waldo"]]
-    updated.sort(key=lambda c: c["confidence"], reverse=True)
     print(f"[detect] {len(updated)}/{before} patches with present=true")
 
     return {"candidates": updated}

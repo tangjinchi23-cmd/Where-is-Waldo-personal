@@ -67,33 +67,25 @@ def test_resolve_image_prefers_original_then_uploads(tmp_path):
 
 
 # ── run_detection ────────────────────────────────────────────────
-class _FakeGraph:
-    def __init__(self, updates):
-        self._updates = updates
-
-    def stream(self, state):
-        yield from self._updates
-
-
-def _patch_graph(monkeypatch, updates):
-    monkeypatch.setattr("service.waldo_service.initial_state", lambda p: {"original_image_path": p})
-    monkeypatch.setattr("service.waldo_service.build_graph", lambda: _FakeGraph(updates))
+def _patch_pipeline(monkeypatch, updates):
+    """patch stream_pipeline 直接产出 (node, delta) 元组序列。"""
+    monkeypatch.setattr("service.waldo_service.stream_pipeline", lambda p: iter(updates))
 
 
 def test_run_detection_full_pipeline_with_verify(tmp_path, monkeypatch):
     updates = [
-        {"segment": {"candidates": [{}, {}, {}]}},
-        {"detect": {"candidates": [
+        ("segment", {"candidates": [{}, {}, {}]}),
+        ("detect", {"candidates": [
             {"crop_path": "a", "confidence": 0.9, "has_waldo": True, "orig_bbox": [1, 2, 3, 4]},
             {"crop_path": "b", "confidence": 0.8, "has_waldo": True, "orig_bbox": [5, 6, 7, 8]},
-        ]}},
-        {"verify": {"candidates": [
+        ]}),
+        ("verify", {"candidates": [
             {"verified": True, "verify_crop_path": "va", "verify_looks_waldo": True, "orig_bbox": [1, 2, 3, 4]},
             {"verified": False, "verify_crop_path": "vb", "verify_looks_waldo": False, "orig_bbox": [5, 6, 7, 8]},
-        ], "verified_result": [1, 2, 3, 4]}},
-        {"visualize": {}},
+        ], "verified_result": [1, 2, 3, 4]}),
+        ("visualize", {}),
     ]
-    _patch_graph(monkeypatch, updates)
+    _patch_pipeline(monkeypatch, updates)
 
     events = list(run_detection("foo.jpg"))
     assert [e["stage"] for e in events] == ["segment", "detect", "verify", "done"]
@@ -107,13 +99,13 @@ def test_run_detection_full_pipeline_with_verify(tmp_path, monkeypatch):
 
 def test_run_detection_skips_verify_single_candidate(tmp_path, monkeypatch):
     updates = [
-        {"segment": {"candidates": [{}]}},
-        {"detect": {"candidates": [
+        ("segment", {"candidates": [{}]}),
+        ("detect", {"candidates": [
             {"crop_path": "a", "confidence": 0.9, "has_waldo": True, "orig_bbox": [1, 2, 3, 4]},
-        ]}},
-        {"visualize": {}},
+        ]}),
+        ("visualize", {}),
     ]
-    _patch_graph(monkeypatch, updates)
+    _patch_pipeline(monkeypatch, updates)
 
     events = list(run_detection("foo.jpg"))
     assert [e["stage"] for e in events] == ["segment", "detect", "verify", "done"]
@@ -124,12 +116,10 @@ def test_run_detection_skips_verify_single_candidate(tmp_path, monkeypatch):
 
 
 def test_run_detection_emits_error_event(monkeypatch):
-    class _BoomGraph:
-        def stream(self, state):
-            raise RuntimeError("no api key")
+    def _boom(image_path):
+        raise RuntimeError("no api key")
 
-    monkeypatch.setattr("service.waldo_service.initial_state", lambda p: {"original_image_path": p})
-    monkeypatch.setattr("service.waldo_service.build_graph", lambda: _BoomGraph())
+    monkeypatch.setattr("service.waldo_service.stream_pipeline", _boom)
 
     events = list(run_detection("foo.jpg"))
     assert events[-1]["stage"] == "error"

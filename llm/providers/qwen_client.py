@@ -9,7 +9,7 @@ from __future__ import annotations
 import mimetypes
 
 from llm.base import BaseVLMClient
-from llm.results import DetectResult, VerifyResult
+from llm.results import DetectResult
 from vision.image_utils import image_to_base64
 
 
@@ -87,6 +87,3 @@ class QwenVLMClient(BaseVLMClient):
 
     def detect(self, image_path: str) -> DetectResult:
         return self._parse_detect(self.call(image_path, self.DETECT_PROMPT))
-
-    def verify(self, image_path: str) -> VerifyResult:
-        return self._parse_verify(self.call(image_path, self.VERIFY_PROMPT))

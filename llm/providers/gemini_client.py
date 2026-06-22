@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from llm.base import BaseVLMClient
-from llm.results import DetectResult, VerifyResult, SelectResult
+from llm.results import DetectResult, SelectResult
 
 
 class GeminiVLMClient(BaseVLMClient):
@@ -30,9 +30,6 @@ class GeminiVLMClient(BaseVLMClient):
 
     def detect(self, image_path: str) -> DetectResult:
         return self._parse_detect(self.call(image_path, self.DETECT_PROMPT))
-
-    def verify(self, image_path: str) -> VerifyResult:
-        return self._parse_verify(self.call(image_path, self.VERIFY_PROMPT))
 
     def select(self, image_paths: list[str]) -> SelectResult:
         """把多张候选裁剪图一次性发给 Gemini，横向单选哪张是真 Waldo。"""

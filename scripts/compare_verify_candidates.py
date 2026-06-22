@@ -5,8 +5,8 @@
 摆给 Gemini 做**单选**，看它能否更干净地指出唯一的真 Waldo，用于对比/诊断。
 
 用法（需项目根 .env 配 GOOGLE_API_KEY）：
-    python scripts/compare_verify_candidates.py                   # 默认 outputs/verify/iter0_verify*.jpg
-    python scripts/compare_verify_candidates.py outputs/verify 0  # 指定目录与 iteration
+    python scripts/compare_verify_candidates.py                 # 默认 outputs/verify/verify*.jpg
+    python scripts/compare_verify_candidates.py outputs/verify  # 指定目录
 """
 
 import glob
@@ -62,13 +62,12 @@ def _verify_index(path: str) -> int:
 
 def main() -> None:
     verify_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "outputs", "verify")
-    iteration = sys.argv[2] if len(sys.argv) > 2 else "0"
     if not os.path.isabs(verify_dir):
         verify_dir = os.path.join(ROOT, verify_dir)
 
-    paths = sorted(glob.glob(os.path.join(verify_dir, f"iter{iteration}_verify*.jpg")), key=_verify_index)
+    paths = sorted(glob.glob(os.path.join(verify_dir, "verify*.jpg")), key=_verify_index)
     if not paths:
-        print(f"未找到 {verify_dir}/iter{iteration}_verify*.jpg")
+        print(f"未找到 {verify_dir}/verify*.jpg")
         return
 
     api_key = os.getenv("GOOGLE_API_KEY")

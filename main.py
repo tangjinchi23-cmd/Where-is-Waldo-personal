@@ -10,14 +10,14 @@ try:
 except ImportError:
     pass
 
-from agent import run_agent
+from agent import run_pipeline
 
 
 def main():
     image_path = sys.argv[1] if len(sys.argv) > 1 else "original-images/1.jpg"
-    print(f"[main] Running WaldoAgent on: {image_path}")
+    print(f"[main] Running Waldo detection on: {image_path}")
 
-    final_state = run_agent(image_path)
+    final_state = run_pipeline(image_path)
 
     result = final_state.get("verified_result")
     candidates = final_state.get("candidates") or []

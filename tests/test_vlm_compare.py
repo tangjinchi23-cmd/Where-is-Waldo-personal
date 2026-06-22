@@ -1,6 +1,6 @@
 """Cross-provider comparison test.
 
-Runs detect() and verify() on the same image across all available providers,
+Runs detect() on the same image across all available providers,
 then prints a side-by-side table so you can compare accuracy, confidence, and
 bbox agreement.
 
@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from llm.vlm_client import DetectResult, VerifyResult, get_vlm_client, BaseVLMClient
+from llm.vlm_client import DetectResult, get_vlm_client, BaseVLMClient
 
 
 # ================================================================
@@ -32,9 +32,7 @@ from llm.vlm_client import DetectResult, VerifyResult, get_vlm_client, BaseVLMCl
 class ProviderResult:
     provider: str
     detect: Optional[DetectResult] = None
-    verify: Optional[VerifyResult] = None
     detect_latency: float = 0.0
-    verify_latency: float = 0.0
     error: Optional[str] = None
 
 
@@ -48,10 +46,6 @@ def _run_provider(name: str, client: BaseVLMClient, image_path: str) -> Provider
         t0 = time.perf_counter()
         result.detect = client.detect(image_path)
         result.detect_latency = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        result.verify = client.verify(image_path)
-        result.verify_latency = time.perf_counter() - t0
     except Exception as exc:
         result.error = str(exc)
     return result
@@ -59,23 +53,18 @@ def _run_provider(name: str, client: BaseVLMClient, image_path: str) -> Provider
 
 def _print_table(results: list[ProviderResult]):
     print("\n" + "=" * 80)
-    print(f"{'Provider':<12} {'has_waldo':<12} {'detect_conf':<14} {'is_waldo':<11} "
-          f"{'verify_conf':<13} {'detect_ms':<12} {'verify_ms':<10}")
+    print(f"{'Provider':<12} {'has_waldo':<12} {'detect_conf':<14} {'detect_ms':<12}")
     print("-" * 80)
     for r in results:
         if r.error:
             print(f"{r.provider:<12} ERROR: {r.error}")
             continue
         d = r.detect
-        v = r.verify
         print(
             f"{r.provider:<12} "
             f"{str(d.has_waldo):<12} "
             f"{d.confidence:<14.3f} "
-            f"{str(v.is_waldo):<11} "
-            f"{v.confidence:<13.3f} "
-            f"{r.detect_latency * 1000:<12.0f} "
-            f"{r.verify_latency * 1000:<10.0f}"
+            f"{r.detect_latency * 1000:<12.0f}"
         )
     print("=" * 80)
 
@@ -101,7 +90,7 @@ class TestProviderComparison:
     def _collect(self, available: dict, image_path: str) -> list[ProviderResult]:
         results = []
         for name, client in available.items():
-            print(f"\n[{name}] running detect + verify ...", flush=True)
+            print(f"\n[{name}] running detect ...", flush=True)
             r = _run_provider(name, client, image_path)
             results.append(r)
         return results
@@ -177,20 +166,13 @@ class TestProviderComparison:
 # Single-provider sanity: Claude only (most likely to have a key)
 # ================================================================
 
-class TestClaudeDetectAndVerifySanity:
+class TestClaudeDetectSanity:
     """Sanity tests that can run with just an Anthropic key."""
 
     def test_detect_raw_response_contains_json_keys(self, claude_client, test_image):
         result = claude_client.detect(test_image)
         raw = result.raw_response.lower()
         assert "has_waldo" in raw or "confidence" in raw, (
-            f"Expected JSON keys in raw response, got: {result.raw_response[:200]}"
-        )
-
-    def test_verify_raw_response_contains_json_keys(self, claude_client, test_image):
-        result = claude_client.verify(test_image)
-        raw = result.raw_response.lower()
-        assert "is_waldo" in raw or "confidence" in raw, (
             f"Expected JSON keys in raw response, got: {result.raw_response[:200]}"
         )
 

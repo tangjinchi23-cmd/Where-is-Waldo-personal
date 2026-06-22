@@ -6,14 +6,13 @@ import json
 import re
 from abc import ABC, abstractmethod
 
-from prompts import DETECT_PROMPT, VERIFY_PROMPT, SELECT_PROMPT
-from llm.results import DetectResult, VerifyResult, SelectResult
+from prompts import DETECT_PROMPT, SELECT_PROMPT
+from llm.results import DetectResult, SelectResult
 
 
 class BaseVLMClient(ABC):
 
     DETECT_PROMPT = DETECT_PROMPT
-    VERIFY_PROMPT = VERIFY_PROMPT
     SELECT_PROMPT = SELECT_PROMPT
 
     @abstractmethod
@@ -23,10 +22,6 @@ class BaseVLMClient(ABC):
     @abstractmethod
     def detect(self, image_path: str) -> DetectResult:
         """VLM 判断 patch 中是否有 Waldo，返回粗略 bbox 和置信度。"""
-
-    @abstractmethod
-    def verify(self, image_path: str) -> VerifyResult:
-        """VLM 对裁剪区域二次确认是否是 Waldo。"""
 
     def select(self, image_paths: list[str]) -> SelectResult:
         """多张候选裁剪图横向单选哪张是 Waldo（默认不支持，需 provider 覆盖）。"""
@@ -46,17 +41,6 @@ class BaseVLMClient(ABC):
             has_waldo=has_waldo,
             confidence=confidence,
             bbox=bbox,
-            raw_response=text,
-        )
-
-    @staticmethod
-    def _parse_verify(text: str) -> VerifyResult:
-        data = _extract_json(text)
-        is_waldo = _first(data, "is_waldo", "confirmed", "verified", "is_wally", default=False)
-        confidence = _first(data, "confidence", "score", "probability", default=0.0)
-        return VerifyResult(
-            is_waldo=bool(is_waldo),
-            confidence=float(confidence),
             raw_response=text,
         )
 

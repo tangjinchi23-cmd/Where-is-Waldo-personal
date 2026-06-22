@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-from agent import run_agent
+from agent import run_pipeline
 
 IMAGES_DIR = "original-images"
 # 1..19 + OIP，跳过 *_annotated
@@ -60,7 +60,7 @@ def main():
         print(f"\n===== [{idx}/{len(todo)}] {name}.jpg =====", flush=True)
         t0 = time.time()
         try:
-            state = run_agent(path)
+            state = run_pipeline(path)
             info = interpret(state)
             info["error"] = None
         except Exception as exc:

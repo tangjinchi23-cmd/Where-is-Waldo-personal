@@ -39,7 +39,6 @@ def verify_node(state: WaldoState) -> dict:
     """
     vlm = get_vlm_client(VLM_PROVIDER, model=VLM_MODEL, max_tokens=SELECT_MAX_TOKENS)
     image_path = state["original_image_path"]
-    iteration = state["iteration"]
     os.makedirs(VERIFY_DIR, exist_ok=True)
 
     img = Image.open(image_path)
@@ -57,7 +56,7 @@ def verify_node(state: WaldoState) -> dict:
         orig_bbox = waldo_orig_bbox(cand["patch_bbox"], cand.get("waldo_bbox_in_patch"))
         padded_bbox = _expand_bbox(orig_bbox, img_w, img_h, PADDING_RATIO, MIN_VERIFY_SIZE)
         crop_img = crop_to_pil(image_path, padded_bbox)
-        verify_path = os.path.join(VERIFY_DIR, f"iter{iteration}_verify{i}.jpg")
+        verify_path = os.path.join(VERIFY_DIR, f"verify{i}.jpg")
         save_patch(crop_img, verify_path)
         crop_paths.append(verify_path)
         orig_bboxes.append(orig_bbox)
@@ -82,12 +81,12 @@ def verify_node(state: WaldoState) -> dict:
     if 0 <= result.choice < len(orig_bboxes):
         verified_result = orig_bboxes[result.choice]
         print(
-            f"[verify] iter={iteration} Gemini selected cand={result.choice} "
+            f"[verify] Gemini selected cand={result.choice} "
             f"conf={result.confidence:.2f} bbox={verified_result} | per_image={per_image}"
         )
     else:
         print(
-            f"[verify] iter={iteration} Gemini selected none "
+            f"[verify] Gemini selected none "
             f"(choice={result.choice}) | per_image={per_image}"
         )
 

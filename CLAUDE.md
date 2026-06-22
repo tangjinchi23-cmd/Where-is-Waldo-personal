@@ -14,52 +14,50 @@
 >
 > **流水线** = `segment(确定性切片) → detect(Gemini) → [路由] → verify/visualize`。
 > - **segment**：确定性固定尺寸滑窗切片（`TILE_SIZE=256` 可调、末块贴边对齐、`TILE_OVERLAP=0.15`）。不调 VLM。
-> - **detect 用 `gemini-3.5-flash`**：全量复验（`docs/工作日志.md`）证明其 present 二元信号最强（召回 94.4% / 误检 4.9%）。⚠️ 其 `confidence` 失效（与 present 矛盾率 77%），故 detect 一律按 **present(has_waldo) 二元信号过滤**，绝不依赖 confidence 排序。
+> - **detect 用 `gemini-3.5-flash`**：全量复验证明其 present 二元信号最强（召回 94.4% / 误检 4.9%）。⚠️ 其 `confidence` 失效（与 present 矛盾率 77%），故 detect 一律按 **present(has_waldo) 二元信号过滤**，绝不依赖 confidence 排序。
 > - **detect 后条件路由**：单候选（或空）直接 visualize、跳过 verify；多候选（少数会冒 false positive 的图）才走 verify 去伪存真。
-> - **verify 用 `gemini-3.5-flash` 横向单选**：把全部 present 候选的裁剪图**一次性**发给 Gemini，在候选间相对比较、只选唯一真 Waldo（返回 index + per_image）。实测优于逐张判断——逐张在密集难图上会把多张都判 Yes、且被红白条纹误导（诊断见 `scripts/compare_verify_candidates.py`）。
-> - 核心设计锚点：**256×256px 是覆盖含小 Waldo 难图（如 2.jpg）的安全切片下限**（极限测试 `scripts/gemini_limit.py`）。
+> - **verify 用 `gemini-3.5-flash` 横向单选**：把全部 present 候选的裁剪图**一次性**发给 Gemini，在候选间相对比较、只选唯一真 Waldo（返回 index + per_image）。实测优于逐张判断——逐张在密集难图上会把多张都判 Yes、且被红白条纹误导。
+> - 核心设计锚点：**256×256px 是覆盖含小 Waldo 难图（如 2.jpg）的安全切片下限**。
 > ⚠️ 下方「Detect Prompt Engineering 准则」小节保留了部分 gpt-5.5 时期的实测结论，仅作 prompt 调参与可切换 provider 的历史参考——主流程 detect/verify 均走 Gemini。
 
 ---
 
-## 服务化与前端（2026-06-18）
+## 历史（已废弃，2026-06-22 大规模重构移除）
 
-把 `main.py` 的一次性测试流程服务化，并配 React + FastAPI 前端。三层单向依赖，流水线层不动：
+> 项目曾有 FastAPI + SSE 服务层（`api/`、`service/`）、React 前端（`frontend/`）、多 provider 抽象（claude/gpt4o/qwen）、大量诊断脚本（`scripts/`）与历史文档（`docs/`）。本次重构**只保留核心检测逻辑**，其余全部删除（可从 git 历史恢复）。详见 commit `bb1028c`。
+>
+> **成本参考（仍适用）**：`gemini-3.5-flash` 输入 $1.50 / 输出 $9.00 每百万 token；单张图 pipeline（~60 detect + 1 verify）≈ $0.09。免费层（20 次/天）不可用，须付费 Tier 1。
 
-```
-[React SPA (antd)] ──/api,/static (SSE)──> [FastAPI: api/main.py] ──> [service/waldo_service.py] ──> stream_pipeline()
-```
+---
 
-- **service 层（`service/waldo_service.py`）**：纯 Python，无 HTTP。
-  - `list_cases / get_case`：扫 `original-images/` 与 `outputs/` 配对已有结果。
-  - `resolve_image(name)`：`original-images/` 优先、`uploads/` 兜底解析图片路径。
-  - `run_detection(image_path)`：把 `stream_pipeline()` 逐节点产出的 `(node, delta)` 翻译成标准事件流 `segment → detect → verify → done`，异常转 `error` 事件；`done` 复刻 main 三态判断（verified / detect-only / not-found）。
-- **api 层（`api/main.py`，FastAPI）**：`GET /api/cases`、`POST /api/upload`（存 `uploads/`）、`GET /api/detect?name=`（**SSE** 长连接，逐节点推事件）、`/static/*` 挂载三目录。**启动即 `load_dotenv()`**——否则 server 进程读不到 `GOOGLE_API_KEY`，detect 全 patch 失败、静默退化成「未找到」（2026-06-18 实际踩过此坑）。
-- **前端（`frontend/`，React + Vite + Ant Design v6）**：选图/上传 → 运行检测 → `Steps` 逐节点亮灯 + 候选画廊（`Image.PreviewGroup`）+ 结果红框图。逻辑核心 `src/pipeline.js`（纯函数事件归约器，有 vitest 单测）；`src/api.js` 封装 fetch + `EventSource`。
-- **批量测试**：`scripts/batch_test_all.py` 跑全量原图、复刻三态判断、**断点续跑**，结果落 `outputs/batch_all_results.json`。
+## 部署目标：AWS Lambda（2026-06-22，规划中）
 
-### 运行
+> **目标**：把整个项目部署为 AWS 上的一个 Lambda 函数。
+> **状态**：仅记录方向，尚未动工；下面的约束是「进一步修改」前必须先定的决策，不是已完成的设计。
 
-```bash
-uvicorn api.main:app --reload --port 8000             # 后端
-cd frontend && npm install && npm run dev             # 前端（:5173，代理 /api /static → :8000）
-pytest tests/test_waldo_service.py tests/test_api.py  # 后端测试
-cd frontend && npm test                               # 前端 pipeline 单测
-```
+### 必须先解决的硬约束（决定怎么改）
 
-### 成本 / 配额（2026-06-18 实测）
+1. **执行时长 vs Lambda 超时**：Lambda 单次调用上限 **15 分钟**。当前单图 pipeline 是 ~60 次 detect + 1 次 verify 的 Gemini 调用，`MAX_CONCURRENT=10` 下数分钟级、且受 Gemini 429/503 退避影响可能更久。需评估：是否压缩到 15 分钟内（提并发 / 减 patch），还是改异步 job 模型。
+2. **同步 vs 异步**：「进图→出结果」若走同步、且前面挂 **API Gateway（集成超时硬上限 29 秒）**，分钟级任务必挂。可选：① 异步 job（提交返回 job id，结果落 S3，客户端轮询）；② Step Functions 编排 segment→detect→verify→visualize（detect 用 Map 真并行）；③ Lambda Function URL 直连撑到 15min 的同步等待（脆）。
+3. **打包体积与依赖**：依赖已砍到只剩 Pillow（含原生库）+ google-generativeai。Lambda zip 解压上限 250MB，Pillow 原生库 + grpc 仍偏大，倾向 **容器镜像部署**（最高 10GB）省心。
+4. **入口适配**：当前唯一入口是 CLI（`main.py` → `run_pipeline`）。Lambda 需写一个 handler 调 `run_pipeline(image_path)`，返回 bbox + 结果图位置。
+5. **存储不可写本地盘**：节点会往 `outputs/patches`、`outputs/verify`、`outputs/{name}_result.jpg` 写文件（见 `detect.py:PATCH_DIR` / `verify.py:VERIFY_DIR` / `visualize.py:OUTPUT_DIR`）。Lambda 只有 `/tmp`（临时、≤10GB）。需把文件 I/O 抽象成可插拔后端（本地 / S3），输入图也从 S3/事件取。
+6. **密钥管理**：`GOOGLE_API_KEY` 现从 `.env`（`main.py` 的 `load_dotenv`）读。Lambda 应走环境变量或 **Secrets Manager / SSM Parameter Store**，不打进镜像。
+7. **SDK 弃用**：`google.generativeai` 已被官方标记弃用，建议迁到 `google.genai`（`llm/providers/gemini_client.py`）。
+8. **冷启动与成本**：容器镜像 + 原生依赖冷启动较慢；按时长计费，长跑任务（网络等 Gemini 的空等时间也计费）成本需估。
 
-- `gemini-3.5-flash` 定价：**输入 $1.50 / 输出 $9.00 每百万 token**；单张图 pipeline（~60 detect + 1 verify）≈ **$0.09**，全量 20 张 ≈ $2。优化阶段付费充 ~$10 足够。
-- **免费层对本场景不可用**：`gemini-3.5-flash` 免费层 `GenerateRequestsPerDayPerProjectPerModel-FreeTier` = **20 次/天**，连一张图（~60 次调用）都跑不完。
-- 设计文档 / 实现计划见 `docs/superpowers/specs/2026-06-18-*` 与 `docs/superpowers/plans/2026-06-18-*`。
+### 暂定方向（待确认，勿当定论）
+
+- 倾向：**容器镜像 Lambda + S3 产物存储 + 异步 job 模型**（提交返回 job id，结果落 S3，客户端轮询），绕开 15 分钟 / 29 秒两个超时。Step Functions 编排各节点是单图更快、更稳但更重的备选。
+- **共同前置改造**：把文件 I/O 从本地盘抽象成可插拔后端（本地 / S3）、密钥改走环境变量/Secrets Manager、容器镜像打包。`agent/pipeline.py` 的流水线逻辑无需改动，改造集中在节点的 I/O 边界与一个新 handler。
 
 ---
 
 ## Detect Prompt Engineering 准则（2026-06-11 实测，后续调 prompt 必读）
 
-> 完整实验记录见 `docs/detect_eval_2026-06-11.md`；量化工具见 `tests/quick_detect_check.py`（召回）/ `tests/quick_falsepos_check.py`（误检）/ 根目录 `config.json`（可调 provider/model/temperature/max_tokens/repeats/limit）。
+> ⚠️ 实验记录（`docs/detect_eval_2026-06-11.md`）与量化工具（`tests/quick_*`、`config.json`）已在 2026-06-22 重构中删除；下面的结论是花了大量 API 成本跑出来的，保留作为调 `DETECT_PROMPT` 的指导，别重复踩坑。
 
-**这些是花了大量 API 成本跑出来的结论，调 `DETECT_PROMPT` 前务必先看，别重复踩坑：**
+**调 `DETECT_PROMPT` 前务必先看：**
 
 1. **不要在 prompt 里枚举 Waldo 的特征**。模型自身就认识 Waldo，列特征只会帮倒忙：
    - 列「眼镜 / 红白帽子」→ 这些在人群里到处都是 → 模型**脑补** → 误检爆表（实测 100%）。
@@ -71,34 +69,29 @@ cd frontend && npm test                               # 前端 pipeline 单测
 5. **mini 有天花板**：受 Waldo 绝对像素尺寸（~30-50px）限制，prompt/缩 patch 都救不动判别力；要质变需上 gpt-5.5。**200×200 是下限，往更小走是负收益**。
 6. **temperature**：mini 设 **0** 求可复现；gpt-5.5 是推理模型**必须 1**（传其它值 API 报错）。
 
-> **正式流水线与测试的分工**：`DETECT_PROMPT` 保持精简、不要求模型输出 reason（省 token）；prompt engineering 时由 `tests/quick_config.run_repeats` 临时追加「附原因」，只走测试路径。
+> **prompt 精简原则**：`DETECT_PROMPT` 保持精简、不要求模型输出 reason（省 token）。
 
 ---
 
 ## 技术栈
 
-- **编排**：纯 Python 函数 + 生成器（`agent/pipeline.py`）。无 agent 框架、无 LangGraph——流程是确定性 workflow，顺序调用各节点、`stream_pipeline` 逐节点产出增量供 SSE。
-- **多模态模型（VLM）**：`gemini-3.5-flash`（detect + verify 主力）；统一接口支持热插拔（可切回 gpt-5.5 / Claude / Qwen）
+- **编排**：纯 Python 函数 + 生成器（`agent/pipeline.py`）。无 agent 框架、无 LangGraph——流程是确定性 workflow，顺序调用各节点。
+- **多模态模型（VLM）**：仅 `gemini-3.5-flash`（detect + verify）。2026-06-22 已砍掉 claude/gpt4o/qwen，`llm/` 只剩 Gemini；`get_vlm_client` / `BaseVLMClient` 抽象保留，便于将来再加 provider。
 - **图像处理**：Pillow（切片 + 裁剪，无 VLM）
-- **并发**：`concurrent.futures.ThreadPoolExecutor`（detect 节点，当前 `MAX_CONCURRENT=10`）
+- **并发**：`concurrent.futures.ThreadPoolExecutor`（detect 节点，`MAX_CONCURRENT=10`）
 
 ### 依赖（requirements.txt）
 
 ```
-langchain-core>=0.2.0   # 仅 tools/ 的 @tool 装饰器与 vision/segment.py::get_image_size 用
-anthropic>=0.30.0
-openai>=1.30.0
 pillow>=10.0.0
-# 可选：google-generativeai>=0.7.0
+google-generativeai>=0.7.0
 ```
 
-> LangGraph 已移除，`requirements.txt` 里的 `langgraph` 可删。`langchain-core` 仍需保留（`@tool` 装饰器依赖）。
+> 仅两个依赖。langgraph / langchain-core / anthropic / openai / fastapi / uvicorn 均已随重构移除。
 
 ### 环境变量（.env）
 
-- `GOOGLE_API_KEY` —— `gemini-3.5-flash` 调用所需（detect + verify，主力）；`google.generativeai` 自动从环境读取
-- `OPENAI_API_KEY` —— 切换回 gpt-5.5 时所需
-- `ANTHROPIC_API_KEY` —— 切换回 Claude 时所需
+- `GOOGLE_API_KEY` —— `gemini-3.5-flash` 调用所需（detect + verify）；`google.generativeai` 自动从环境读取。**唯一需要的 key。**
 
 `main.py` 启动时通过 `dotenv.load_dotenv()` 加载（缺失则跳过）。
 
@@ -107,8 +100,8 @@ pillow>=10.0.0
 ## 运行方式
 
 ```bash
-python main.py [图片路径]          # 默认 original-images/1.jpg
-python tests/check_detect_prompt.py  # 测试 DETECT_PROMPT 在已知含 Waldo 图片上的召回率
+python main.py [图片路径]   # 默认 original-images/1.jpg；本地跑核心流水线、打印结果
+pytest tests/ -q            # 核心逻辑单测（无 API：切片 / 解析 / 路由）
 ```
 
 入口 `run_pipeline(image_path)`（`agent/pipeline.py`），返回最终 `WaldoState`。
@@ -170,25 +163,24 @@ class WaldoState(TypedDict):
 
 - `_run_nodes(state)`：顺序运行 `segment → detect →（候选 > 1 才）verify → visualize`，每步 `state.update(delta)` 后 `yield (node, delta)`。
 - `run_pipeline(image_path)`：跑完返回最终 state（CLI / 批量测试用）。
-- `stream_pipeline(image_path)`：对外暴露 `(node, delta)` 生成器，供 service 层翻译成 SSE。
+- `stream_pipeline(image_path)`：对外暴露 `(node, delta)` 生成器，供未来的 handler / 调用方按需消费逐节点进度。
 - 唯一分支是 `if len(state["candidates"]) > 1`（确定性，非 LLM 决策）；evaluate / calibrate / analyze / LangGraph 均已移除。
 
 ---
 
-## VLM 抽象层（llm/vlm_client.py）
+## VLM 抽象层（llm/）
 
-统一接口，四家 provider 同构实现，工厂函数一键切换：
+Gemini-only。`BaseVLMClient` 接口 + 工厂保留，便于将来再加 provider：
 
 ```python
-get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
+get_vlm_client(provider="gemini")   # 当前仅 "gemini"
 ```
 
 | Provider | 类 | 默认 model | 备注 |
 |----------|----|-----------|------|
-| claude | `ClaudeVLMClient` | `claude-sonnet-4-6` | 可切换备用 |
-| gpt4o | `GPT4oVLMClient` | `gpt-5.5` | 推理模型，现已不在主流程默认链上（detect/verify 均走 Gemini）；可切换备用 |
-| gemini | `GeminiVLMClient` | `gemini-1.5-flash`（类默认）；**detect/verify 实际用 `gemini-3.5-flash`** | **detect + verify 默认**；detect 用 present 二元信号，verify 用横向单选 `select()` |
-| qwen | `QwenVLMClient` | `qwen-vl-max` | 走 DashScope OpenAI 兼容接口；需 `DASHSCOPE_API_KEY` |
+| gemini | `GeminiVLMClient` | `gemini-1.5-flash`（类默认）；**detect/verify 实际用 `gemini-3.5-flash`** | detect 用 present 二元信号，verify 用横向单选 `select()` |
+
+> 2026-06-22 砍掉 claude / gpt4o / qwen 三个 provider；如需再加，实现一个 `BaseVLMClient` 子类并注册进 `llm/factory.py` 即可。
 
 每个 client 实现 call / detect 两方法；Gemini 另实现 `select`（横向单选）：
 - `call(image_path, prompt, max_tokens)` —— 发图 + 自定义 prompt，返回原始文本
@@ -234,10 +226,10 @@ get_vlm_client(provider="claude")   # "claude" | "gpt4o" | "gemini" | "qwen"
 ```
 WhereisWaldoAgent/
 ├── CLAUDE.md
-├── main.py                      # 入口：python main.py [图片路径]
-├── prompts.py                   # 集中存放所有 VLM 提示词
-├── requirements.txt
-├── .env                         # ANTHROPIC_API_KEY + OPENAI_API_KEY
+├── main.py                      # 本地 runner：python main.py [图片路径] → run_pipeline
+├── prompts.py                   # DETECT_PROMPT / SELECT_PROMPT
+├── requirements.txt             # 仅 pillow + google-generativeai
+├── .env                         # GOOGLE_API_KEY
 ├── agent/
 │   ├── __init__.py              # 导出 run_pipeline / stream_pipeline
 │   ├── state.py                 # WaldoState + initial_state
@@ -247,60 +239,44 @@ WhereisWaldoAgent/
 │       ├── segment.py           # 入口：确定性固定尺寸滑窗切片为 patch
 │       ├── detect.py            # gemini-3.5-flash 判断 patch 是否含 Waldo
 │       ├── verify.py            # gemini-3.5-flash 横向单选候选（多候选时）
-│       └── visualize.py         # 在原图标注结果
-├── llm/                         # VLM 适配器层
+│       └── visualize.py         # 在原图标注结果（画红框）
+├── llm/                         # VLM 适配层（Gemini-only）
 │   ├── __init__.py
-│   ├── vlm_client.py            # 兼容垫片（保留旧 import 路径）
-│   ├── base.py                  # BaseVLMClient + _extract_json
-│   ├── factory.py               # get_vlm_client 工厂
+│   ├── vlm_client.py            # 聚合 import 入口
+│   ├── base.py                  # BaseVLMClient + _extract_json + _parse_detect/_parse_select
+│   ├── factory.py               # get_vlm_client 工厂（仅 gemini）
 │   ├── results.py               # DetectResult / SelectResult
-│   └── providers/               # Claude / GPT-4o / Gemini / Qwen 实现
-├── vision/                      # 图像处理 + 切分
+│   └── providers/gemini_client.py
+├── vision/                      # 图像处理 + 切分（无 VLM）
 │   ├── __init__.py
 │   ├── image_utils.py           # base64 编码、裁剪、保存
-│   └── segment.py               # tile_region（固定尺寸滑窗切片）/ get_image_size
-├── tools/                       # LangChain @tool
+│   └── segment.py               # tile_region（固定尺寸滑窗切片）+ waldo_orig_bbox
+├── tools/
 │   ├── __init__.py
-│   ├── visualize.py             # 画 bbox（@tool）
-│   └── crop_image.py            # 裁剪并保存（@tool）
-├── tests/                       # 测试脚本
-│   ├── check_claude.py          # Claude API key 验证
-│   ├── check_gpt4o.py           # OpenAI API key 验证
-│   ├── check_detect_prompt.py   # DETECT_PROMPT 召回率测试（images_withWaldo/）
-│   └── ...
-├── docs/                        # 设计文档
-│   ├── agent_logic.md           # 完整逻辑链路文档
-│   └── archive/                 # 已失效文档（描述已删除的 analyze 节点 / 旧 run issues）
-├── original-images/             # 测试图片（1.jpg ~ 19.jpg, OIP.jpg）
-├── images_withWaldo/            # 含 Waldo 的标注图片（召回率测试用）
-└── outputs/
-    ├── patches/                 # 各轮裁出的 patch
+│   └── visualize.py             # visualize_result：画 bbox（普通函数，无 langchain）
+├── tests/                       # 仅核心逻辑单测（无 API）
+│   ├── test_segment.py          # 切片几何 + segment 节点
+│   ├── test_vlm_parse.py        # VLM JSON 解析 + factory
+│   └── test_pipeline.py         # 流水线编排与路由
+├── original-images/             # 测试图片
+└── outputs/                     # 运行产物（gitignore）
+    ├── patches/                 # detect 裁出的 patch
     ├── verify/                  # verify 的特写裁剪
     └── [basename]_result.jpg    # 最终标注图
 ```
 
 ---
 
-## 已知 Bug（待修复）
-
-> 详见 `docs/archive/run_issues_2026-06-09.md`（已归档）
-
-- [x] **analyze 解析失败（已修复）**：根因 = `gpt-5.5` 是**推理模型**，`max_completion_tokens` 先被 reasoning token 消耗。128 预算被推理 100% 吃光（`finish_reason='length'`, content=`''`），降级到 fallback。实测 reasoning 达 ~232 token。修复：`ANALYZE_MAX_TOKENS` 提至 1024（对齐 detect/verify 默认值）。集成测试 `test_analyze_vlm_response_is_not_empty` 已转绿
-- [x] **main.py grid_size 参数过时**：`run_agent` 调用已改为 `grid_size=1`，`initial_state` 默认值同步改为 1
-- [x] **detect 截断导致系统性漏检**：`MAX_PATCHES_PER_ITER` 提升至 80，截断改为随机采样，避免系统性漏检右下角
-
----
-
 ## 待确认 / 优化方向
 
-- [ ] **量化评测（头号优先）**：对 `original-images/` 建立 ground truth 标注 + IoU 命中率脚本。当前所有改动只能靠单图肉眼定性验证（密集难图常说不清谁是真 Waldo），这是检验 detect 召回 / verify 横向单选准确率 / bbox 精度的唯一可靠手段。
+- [ ] **Lambda 化（当前主线）**：见上方「部署目标：AWS Lambda」，先定同步/异步 + 打包方式，再改 I/O 边界与 handler。
+- [ ] **量化评测**：对 `original-images/` 建立 ground truth 标注 + IoU 命中率脚本。当前只能靠单图肉眼定性验证；这是检验 detect 召回 / verify 准确率 / bbox 精度的唯一可靠手段。
 - [ ] **网络鲁棒性**：Gemini 调用偶发 504/503 超时（实测 2.jpg 跑挂 3 个 patch）；detect 已有 429 退避，但对 503/504/连接错误也应纳入重试。
-- [ ] **计费类 429 快速失败**：detect 的重试把**所有** 429 当限流退避（15→30→60→120s），但「额度耗尽 / `credits are depleted` / free-tier 日配额超限」的 429 重试无用，导致每张图空转 ~27 分钟、并把结果污染成假阴性（2026-06-18 image 4 实测）。应识别计费类 429 **直接抛出不重试**，作为 `error` 事件冒到前端。
-- [ ] **SSE 长连接心跳**：detect 节点跑数分钟期间 SSE 全程静默，长连接易被 Vite 代理 / 浏览器按空闲超时掐断 → 前端「连接中断」。可加周期性心跳事件。
+- [ ] **计费类 429 快速失败**：detect 的重试把**所有** 429 当限流退避（15→30→60→120s），但「额度耗尽 / 日配额超限」的 429 重试无用，会让每张图空转 ~27 分钟、并污染成假阴性。应识别计费类 429 **直接抛出不重试**。
 - [ ] **TILE_SIZE 调参**：默认 256（覆盖小 Waldo 难图）；建立量化评测后正式比较 256 vs 384 的召回/速度权衡。
-- [ ] **并发上限**：当前 `MAX_CONCURRENT=10`（付费 Tier 1 ~300 RPM）；如需更高吞吐可考虑用线程池并行各 detect 分支，注意 RPD ~1500/天 的上限。
-- [x] **bbox 精修（已完成）**：detect 让 Gemini 在 patch 内回精确 bbox（`waldo_orig_bbox` 映射回原图），verify/单候选路径都能画紧框，无 bbox 时退化整块 patch。
-- [x] **verify 抗误检（已完成）**：从 gpt-5.5 逐张判断改为 gemini-3.5-flash 横向单选，摆脱对不可靠 confidence 排序的依赖。
+- [ ] **迁移 `google.genai`**：`google.generativeai` 已被官方弃用。
+
+> 已完成（历史）：bbox 精修（patch 内精确 bbox 映射回原图）、verify 抗误检（逐张判断 → 横向单选）、detect 随机采样防系统性漏检。
 
 <!-- superpowers-zh:begin (do not edit between these markers) -->
 # Superpowers-ZH 中文增强版

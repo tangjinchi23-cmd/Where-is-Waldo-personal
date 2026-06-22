@@ -1,14 +1,14 @@
+"""在图片上画 bbox 并保存（普通函数，无 langchain 依赖）。"""
+
 from PIL import Image, ImageDraw
-from langchain_core.tools import tool
 
 
-@tool
 def visualize_result(image_path: str, bbox: list[int], output_path: str = "bbox_result.jpg") -> str:
     """在图片上绘制边界框并保存。
 
     Args:
         image_path: 输入图片的文件路径。
-        bbox: 边界框，格式为 [x, y, width, height]（左上角坐标 + 宽高）。
+        bbox: 边界框 [x, y, width, height]（左上角坐标 + 宽高）。
         output_path: 结果保存路径。
 
     Returns:

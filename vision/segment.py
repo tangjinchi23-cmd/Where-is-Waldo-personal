@@ -1,8 +1,4 @@
 
-from PIL import Image
-from langchain_core.tools import tool
-
-
 def _axis_starts(start: int, length: int, tile: int, stride: int) -> list[int]:
     """一根轴上的切片起点：滑窗 + 末块贴边对齐。
 
@@ -74,17 +70,3 @@ def waldo_orig_bbox(patch_bbox: list[int], waldo_bbox_in_patch: list[int] | None
     px, py = patch_bbox[0], patch_bbox[1]
     wx, wy, ww, wh = waldo_bbox_in_patch
     return [px + wx, py + wy, ww, wh]
-
-
-@tool
-def get_image_size(image_path: str) -> list[int]:
-    """获取图片的宽高（像素）。
-
-    Args:
-        image_path: 图片文件路径。
-
-    Returns:
-        [width, height]。
-    """
-    img = Image.open(image_path)
-    return list(img.size)

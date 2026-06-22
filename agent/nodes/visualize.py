@@ -30,11 +30,11 @@ def visualize_node(state: WaldoState) -> dict:
     base = os.path.splitext(os.path.basename(state["original_image_path"]))[0]
     output_path = os.path.join(OUTPUT_DIR, f"{base}_result.jpg")
 
-    saved = visualize_result.invoke({
-        "image_path": state["original_image_path"],
-        "bbox": bbox,
-        "output_path": output_path,
-    })
+    saved = visualize_result(
+        image_path=state["original_image_path"],
+        bbox=bbox,
+        output_path=output_path,
+    )
     print(f"[visualize] Result saved → {saved}  bbox={bbox}")
     return {}
 

@@ -32,8 +32,8 @@
 
 ## 部署目标：AWS Lambda（2026-06-22，规划中）
 
-> **目标**：把整个项目部署为 AWS 上的一个 Lambda 函数。
-> **状态**：仅记录方向，尚未动工；下面的约束是「进一步修改」前必须先定的决策，不是已完成的设计。
+> **目标**：把整个项目部署为 AWS 上的 Lambda 函数，对外契约 = 进一张图 → 出一个识别结果（bbox + 结果图）。
+> **状态**：架构已选定（下方「目标架构：方案 A」），代码改造尚未动工。下方「硬约束」是设计依据。
 
 ### 必须先解决的硬约束（决定怎么改）
 
@@ -46,10 +46,36 @@
 7. **SDK 弃用**：`google.generativeai` 已被官方标记弃用，建议迁到 `google.genai`（`llm/providers/gemini_client.py`）。
 8. **冷启动与成本**：容器镜像 + 原生依赖冷启动较慢；按时长计费，长跑任务（网络等 Gemini 的空等时间也计费）成本需估。
 
-### 暂定方向（待确认，勿当定论）
+### 目标架构：方案 A —— 容器镜像异步 Lambda + S3 + 轮询（已选定）
 
-- 倾向：**容器镜像 Lambda + S3 产物存储 + 异步 job 模型**（提交返回 job id，结果落 S3，客户端轮询），绕开 15 分钟 / 29 秒两个超时。Step Functions 编排各节点是单图更快、更稳但更重的备选。
-- **共同前置改造**：把文件 I/O 从本地盘抽象成可插拔后端（本地 / S3）、密钥改走环境变量/Secrets Manager、容器镜像打包。`agent/pipeline.py` 的流水线逻辑无需改动，改造集中在节点的 I/O 边界与一个新 handler。
+策略 **先 A 后 B**：先用方案 A 跑通「进图→出结果」的部署闭环；若单图速度或 15min 超时成为瓶颈，再演进到方案 B（Step Functions + detect Map 真并行）。A 用异步 job 模型，绕开 API Gateway 29s 与 Lambda 15min 同步等待两座大山。
+
+```
+Client ──POST 图──> API Gateway ──> [Lambda: submit]（轻，同步秒回）
+                                       1. 原图存 S3  s3://<bucket>/input/{job_id}.jpg
+                                       2. 写 job=PENDING 到 DynamoDB
+                                       3. 异步 invoke worker（Event 模式）
+                                       4. 返回 {job_id}
+                                     [Lambda: worker]（重，容器镜像，跑 run_pipeline）
+                                       1. 从 S3 取图到 /tmp
+                                       2. run_pipeline(image_path) → bbox + 结果图
+                                       3. 结果图传 S3  s3://<bucket>/output/{job_id}.jpg
+                                       4. 写 job=DONE + bbox（或 FAILED + error）到 DynamoDB
+Client ──GET /result?job_id──> API Gateway ──> [Lambda: status]
+                                       读 DynamoDB；DONE 则返回 bbox + 结果图 presigned URL
+```
+
+**组件**：
+- **Lambda × 2**：`submit`/`status`（轻，可同一函数多路由）+ `worker`（重，容器镜像，跑流水线）。
+- **S3**：input/ 原图、output/ 结果图（presigned URL 回传）。
+- **DynamoDB**：job 状态表 `{job_id(PK), status, bbox, result_key, error, ttl}`。
+- **密钥**：`GOOGLE_API_KEY` 走 Lambda 环境变量 / Secrets Manager。
+
+**代码改造范围（Phase 2，逻辑不动 `agent/pipeline.py`）**：
+1. **I/O 抽象**：节点的文件读写（`detect.py:PATCH_DIR` / `verify.py:VERIFY_DIR` / `visualize.py:OUTPUT_DIR`）抽成可插拔 storage backend（local / S3-via-/tmp+upload），由配置/环境变量切换。
+2. **handler 模块**（如 `handler.py`）：`submit` / `worker` / `status` 三个入口。
+3. **打包**：Dockerfile（基于 AWS Lambda Python 基镜像）+ 部署脚本/IaC（SAM 或 Terraform，待定）。
+4. **SDK**：顺带把 `google.generativeai` 迁到 `google.genai`（已弃用）。
 
 ---
 
